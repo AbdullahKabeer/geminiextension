@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeminiPilot 3</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #e4e4e4;
+      min-height: 100vh;
+      padding: 16px;
+    }
+
+    .container {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-width: 400px;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .header h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      background: linear-gradient(90deg, #00d4ff, #7c3aed);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .header .badge {
+      font-size: 0.65rem;
+      background: #7c3aed;
+      padding: 2px 8px;
+      border-radius: 12px;
+      color: white;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    label {
+      font-size: 0.85rem;
+      color: #a0a0a0;
+      font-weight: 500;
+    }
+
+    input[type="password"],
+    textarea {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 12px;
+      color: #fff;
+      font-size: 0.9rem;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    input[type="password"]:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #7c3aed;
+      box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.2);
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      flex: 1;
+      min-width: 80px;
+      padding: 12px 16px;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.2s;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+    }
+
+    button:active {
+      transform: translateY(0);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .btn-start {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: white;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+    }
+
+    .btn-start:hover:not(:disabled) {
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+    }
+
+    .btn-stop {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: white;
+      box-shadow: 0 4px 14px rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-stop:hover:not(:disabled) {
+      box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+    }
+
+    .btn-resume {
+      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      color: white;
+      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3);
+      display: none;
+    }
+
+    .btn-resume.visible {
+      display: block;
+    }
+
+    .btn-resume:hover:not(:disabled) {
+      box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
+    }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 8px;
+      font-size: 0.8rem;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #6b7280;
+    }
+
+    .status-dot.running {
+      background: #10b981;
+      animation: pulse 1.5s infinite;
+    }
+
+    .status-dot.paused {
+      background: #f59e0b;
+    }
+
+    .status-dot.error {
+      background: #ef4444;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .logs-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .logs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .logs-header button {
+      flex: none;
+      padding: 4px 12px;
+      font-size: 0.75rem;
+      background: rgba(255, 255, 255, 0.1);
+      color: #a0a0a0;
+    }
+
+    .logs {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      padding: 12px;
+      height: 300px;
+      overflow-y: auto;
+      font-family: 'Monaco', 'Consolas', monospace;
+      font-size: 0.8rem;
+      line-height: 1.5;
+    }
+
+    .log-entry {
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    }
+
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+
+    .log-entry.thought {
+      color: #a78bfa;
+    }
+
+    .log-entry.action {
+      color: #34d399;
+    }
+
+    .log-entry.error {
+      color: #f87171;
+    }
+
+    .log-entry.info {
+      color: #60a5fa;
+    }
+
+    .log-entry.warning {
+      color: #fbbf24;
+    }
+
+    .log-time {
+      color: #6b7280;
+      font-size: 0.7rem;
+      margin-right: 8px;
+    }
+
+    .human-help-banner {
+      display: none;
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: white;
+      padding: 12px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .human-help-banner.visible {
+      display: block;
+    }
+
+    .human-help-banner p {
+      font-size: 0.85rem;
+      margin-bottom: 8px;
+    }
+
+    /* Scrollbar styling */
+    .logs::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .logs::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 3px;
+    }
+
+    .logs::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 3px;
+    }
+
+    .logs::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🚀 GeminiPilot 3</h1>
+      <span class="badge">AI Agent</span>
+    </div>
+
+    <div class="form-group">
+      <label for="apiKey">Gemini API Key</label>
+      <input type="password" id="apiKey" placeholder="Enter your Gemini API key...">
+    </div>
+
+    <div class="form-group">
+      <label for="goal">Goal</label>
+      <textarea id="goal" placeholder="What should the agent do? e.g., 'Search for the latest news about AI'"></textarea>
+    </div>
+
+    <div class="controls">
+      <button class="btn-start" id="startBtn">▶ Start</button>
+      <button class="btn-stop" id="stopBtn" disabled>◼ Stop</button>
+      <button class="btn-resume" id="resumeBtn">↻ Resume</button>
+    </div>
+
+    <div class="human-help-banner" id="humanHelpBanner">
+      <p id="humanHelpMessage">The agent needs your help!</p>
+    </div>
+
+    <div class="status-bar">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Ready</span>
+    </div>
+
+    <div class="logs-container">
+      <div class="logs-header">
+        <label>Agent Logs</label>
+        <button id="clearLogsBtn">Clear</button>
+      </div>
+      <div class="logs" id="logs"></div>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

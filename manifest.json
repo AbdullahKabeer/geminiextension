@@ -1,0 +1,38 @@
+{
+  "manifest_version": 3,
+  "name": "GeminiPilot 3",
+  "version": "1.0.0",
+  "description": "A Multimodal AI Agent that acts as a 'Driver' for the web browser using Gemini 3.0 Flash",
+  "permissions": [
+    "sidePanel",
+    "activeTab",
+    "scripting",
+    "storage",
+    "tabs"
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Open GeminiPilot 3"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
