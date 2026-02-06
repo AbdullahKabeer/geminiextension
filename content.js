@@ -3,14 +3,23 @@
  * Set-of-Marks (SoM) Engine for DOM element discovery and interaction
  */
 
+// Prevent re-injection
+if (window.GeminiPilotScriptLoaded) {
+    console.log('GeminiPilot content script already loaded');
+    // We still want to reset some state if needed, but for now just returning prevents the crash
+    // However, we can't "return" from a top-level script easily without being in a function.
+    // So we'll use a block or just change 'let' to 'var' which is safer for re-injection.
+}
+window.GeminiPilotScriptLoaded = true;
+
 // Global element map for tracking tagged elements
-window.geminiElementMap = {};
+window.geminiElementMap = window.geminiElementMap || {};
 
 // Badge container for visual overlays
-let badgeContainer = null;
+var badgeContainer = document.getElementById('gemini-badge-container') || null;
 
 // Counter for element IDs
-let elementCounter = 0;
+var elementCounter = 0;
 
 /**
  * Check if an element is truly visible and interactive

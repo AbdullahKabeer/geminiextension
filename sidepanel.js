@@ -14,28 +14,23 @@ let consecutiveErrors = 0;
 let currentPlan = []; // Multi-step plan
 let collectedItems = []; // Data collection list
 let managedTabs = []; // Track all tabs we're working with
+let waitingForInput = false;
+let inputResolver = null;
 
 // ==================== DOM ELEMENTS ====================
 const apiKeyInput = document.getElementById('apiKey');
-const goalInput = document.getElementById('goal');
-const startBtn = document.getElementById('startBtn');
+const chatInput = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+const chatHistory = document.getElementById('chatHistory');
 const stopBtn = document.getElementById('stopBtn');
-const resumeBtn = document.getElementById('resumeBtn');
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
 const logsDiv = document.getElementById('logs');
 const clearLogsBtn = document.getElementById('clearLogsBtn');
-const humanHelpBanner = document.getElementById('humanHelpBanner');
-const humanHelpMessage = document.getElementById('humanHelpMessage');
-const elapsedTimeEl = document.getElementById('elapsedTime');
-const sessionCountEl = document.getElementById('sessionCount');
-const actionCountEl = document.getElementById('actionCount');
-const successRateEl = document.getElementById('successRate');
-const goalHistoryEl = document.getElementById('goalHistory');
+
 const progressBar = document.getElementById('progressBar');
 const progressFill = document.getElementById('progressFill');
 const logCountEl = document.getElementById('logCount');
-const avgTimeEl = document.getElementById('avgTime');
 const screenshotPreview = document.getElementById('screenshotPreview');
 const screenshotImg = document.getElementById('screenshotImg');
 const toggleScreenshotBtn = document.getElementById('toggleScreenshot');
@@ -44,6 +39,9 @@ const templateBtns = document.querySelectorAll('.template-btn');
 const logsContainer = document.getElementById('logsContainer');
 const logsHeader = document.getElementById('logsHeader');
 const screenshotPlaceholder = document.getElementById('screenshotPlaceholder');
+const openLogsBtn = document.getElementById('openLogsBtn');
+const logsModal = document.getElementById('logsModal');
+const closeLogsBtn = document.getElementById('closeLogsBtn');
 const settingsBtn = document.getElementById('settingsBtn');
 const settingsModal = document.getElementById('settingsModal');
 const closeSettingsBtn = document.getElementById('closeSettingsBtn');
@@ -91,32 +89,24 @@ function setStatus(status, dotClass = '') {
 
 function updateUI() {
     if (isRunning && !isPaused) {
-        startBtn.disabled = true;
         stopBtn.disabled = false;
-        resumeBtn.classList.remove('visible');
+        stopBtn.classList.add('visible');
+        sendBtn.disabled = true;
         setStatus('Running...', 'running');
     } else if (isRunning && isPaused) {
-        startBtn.disabled = true;
         stopBtn.disabled = false;
-        resumeBtn.classList.add('visible');
-        setStatus('Paused - Human Help Needed', 'paused');
+        stopBtn.classList.add('visible');
+        sendBtn.disabled = false; // Allow input when paused
+        setStatus('Paused - Waiting for you', 'paused');
     } else {
-        startBtn.disabled = false;
         stopBtn.disabled = true;
-        resumeBtn.classList.remove('visible');
-        humanHelpBanner.classList.remove('visible');
-        setStatus('Ready');
+        stopBtn.classList.remove('visible');
+        sendBtn.disabled = false;
+        setStatus('Ready for instructions', '');
     }
 }
 
-function showHumanHelp(message) {
-    humanHelpMessage.textContent = message || 'The agent needs your help!';
-    humanHelpBanner.classList.add('visible');
-}
 
-function hideHumanHelp() {
-    humanHelpBanner.classList.remove('visible');
-}
 
 // ==================== STORAGE ====================
 async function saveApiKey(key) {
@@ -482,257 +472,274 @@ async function executeAction(agentResponse) {
     let result = { success: false, error: 'Unknown action' };
 
     try {
-        switch (action) {
-            case 'click':
-                if (!targetId) {
-                    result = { success: false, error: 'No target_id for click' };
-                } else {
-                    log(`Clicking element ${targetId}...`, 'action');
-                    result = await chrome.tabs.sendMessage(currentTabId, {
-                        type: 'EXECUTE_ACTION',
-                        action: { type: 'click', target_id: targetId }
-                    });
-                    if (result.success) {
+        // Action requiring User Feedack
+        if (action === 'human_help') {
+            waitingForInput = true;
+            addChatMessage('agent', `I need your help: ${agentResponse.message_to_user || 'Please provide instructions.'}`, 'system');
+            setStatus('Waiting for input...', 'paused');
+            isPaused = true;
+            updateUI();
+
+            // Wait for user to type in chat
+            const userResponse = await new Promise(resolve => {
+                inputResolver = resolve;
+            });
+
+            // Add response to history
+            conversationHistory.push({ role: 'user', text: `User provided help: ${userResponse}` });
+            isPaused = false;
+            waitingForInput = false;
+            inputResolver = null;
+            updateUI();
+            result = { success: true, message: `Human help received: ${userResponse}` };
+        }
+        // If Done
+        else if (action === 'done') {
+            const summary = value || "Task completed.";
+            addChatMessage('agent', `✅ ${summary}`);
+            log(`Mission Complete: ${summary}`, 'success');
+            recordActionStats(true);
+            stopAgent();
+            result = { success: true, message: summary };
+        }
+        else {
+            switch (action) {
+                case 'click':
+                    if (!targetId) {
+                        result = { success: false, error: 'No target_id for click' };
+                    } else {
+                        log(`Clicking element ${targetId}...`, 'action');
+                        result = await chrome.tabs.sendMessage(currentTabId, {
+                            type: 'EXECUTE_ACTION',
+                            action: { type: 'click', target_id: targetId }
+                        });
+                        if (result.success) {
+                            await waitForPageLoad(currentTabId, 5000);
+                        }
+                    }
+                    break;
+
+                case 'type':
+                    if (!targetId || !value) {
+                        result = { success: false, error: 'Missing target_id or value for type' };
+                    } else {
+                        log(`Typing "${value}" into element ${targetId}...`, 'action');
+                        result = await chrome.tabs.sendMessage(currentTabId, {
+                            type: 'EXECUTE_ACTION',
+                            action: { type: 'type', target_id: targetId, value: value }
+                        });
+                    }
+                    break;
+
+                case 'type_and_enter':
+                    if (!targetId || !value) {
+                        result = { success: false, error: 'Missing target_id or value for type_and_enter' };
+                    } else {
+                        log(`Typing "${value}" and pressing Enter on element ${targetId}...`, 'action');
+                        result = await chrome.tabs.sendMessage(currentTabId, {
+                            type: 'EXECUTE_ACTION',
+                            action: { type: 'type_and_enter', target_id: targetId, value: value }
+                        });
+                        if (result.success) {
+                            await waitForPageLoad(currentTabId, 8000);
+                        }
+                    }
+                    break;
+
+                case 'press_enter':
+                    if (!targetId) {
+                        result = { success: false, error: 'No target_id for press_enter' };
+                    } else {
+                        log(`Pressing Enter on element ${targetId}...`, 'action');
+                        result = await chrome.tabs.sendMessage(currentTabId, {
+                            type: 'EXECUTE_ACTION',
+                            action: { type: 'submit', target_id: targetId }
+                        });
                         await waitForPageLoad(currentTabId, 5000);
                     }
-                }
-                break;
+                    break;
 
-            case 'type':
-                if (!targetId || !value) {
-                    result = { success: false, error: 'Missing target_id or value for type' };
-                } else {
-                    log(`Typing "${value}" into element ${targetId}...`, 'action');
+                case 'scroll':
+                    const direction = value || 'down';
+                    log(`Scrolling ${direction}...`, 'action');
                     result = await chrome.tabs.sendMessage(currentTabId, {
                         type: 'EXECUTE_ACTION',
-                        action: { type: 'type', target_id: targetId, value: value }
+                        action: { type: 'scroll', value: direction }
                     });
-                }
-                break;
+                    await sleep(800);
+                    break;
 
-            case 'type_and_enter':
-                if (!targetId || !value) {
-                    result = { success: false, error: 'Missing target_id or value for type_and_enter' };
-                } else {
-                    log(`Typing "${value}" and pressing Enter on element ${targetId}...`, 'action');
-                    result = await chrome.tabs.sendMessage(currentTabId, {
-                        type: 'EXECUTE_ACTION',
-                        action: { type: 'type_and_enter', target_id: targetId, value: value }
-                    });
-                    if (result.success) {
-                        await waitForPageLoad(currentTabId, 8000);
+                case 'navigate':
+                    if (!value) {
+                        result = { success: false, error: 'No URL for navigate' };
+                    } else {
+                        let url = value;
+                        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                            url = 'https://' + url;
+                        }
+                        log(`Navigating to ${url}...`, 'action');
+                        await chrome.tabs.update(currentTabId, { url: url });
+                        await waitForPageLoad(currentTabId, 10000);
+                        result = { success: true, message: `Navigated to ${url}` };
                     }
-                }
-                break;
+                    break;
 
-            case 'press_enter':
-                if (!targetId) {
-                    result = { success: false, error: 'No target_id for press_enter' };
-                } else {
-                    log(`Pressing Enter on element ${targetId}...`, 'action');
-                    result = await chrome.tabs.sendMessage(currentTabId, {
-                        type: 'EXECUTE_ACTION',
-                        action: { type: 'submit', target_id: targetId }
-                    });
+                case 'new_tab':
+                    if (!value) {
+                        result = { success: false, error: 'No URL for new_tab' };
+                    } else {
+                        let url = value;
+                        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                            url = 'https://' + url;
+                        }
+                        log(`Opening new tab: ${url}...`, 'action');
+                        const newTab = await chrome.tabs.create({ url: url, active: true });
+                        currentTabId = newTab.id;
+                        await waitForPageLoad(currentTabId, 10000);
+                        result = { success: true, message: `Opened new tab: ${url}` };
+                    }
+                    break;
+
+                case 'wait':
+                    const waitMs = Math.min(parseInt(value) || 1000, 5000);
+                    log(`Waiting ${waitMs}ms...`, 'action');
+                    await sleep(waitMs);
+                    result = { success: true, message: `Waited ${waitMs}ms` };
+                    break;
+
+                case 'go_back':
+                    log('Going back...', 'action');
+                    await chrome.tabs.goBack(currentTabId);
                     await waitForPageLoad(currentTabId, 5000);
-                }
-                break;
+                    result = { success: true, message: 'Went back' };
+                    break;
 
-            case 'scroll':
-                const direction = value || 'down';
-                log(`Scrolling ${direction}...`, 'action');
-                result = await chrome.tabs.sendMessage(currentTabId, {
-                    type: 'EXECUTE_ACTION',
-                    action: { type: 'scroll', value: direction }
-                });
-                await sleep(800);
-                break;
-
-            case 'navigate':
-                if (!value) {
-                    result = { success: false, error: 'No URL for navigate' };
-                } else {
-                    let url = value;
-                    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                        url = 'https://' + url;
-                    }
-                    log(`Navigating to ${url}...`, 'action');
-                    await chrome.tabs.update(currentTabId, { url: url });
+                case 'refresh':
+                    log('Refreshing page...', 'action');
+                    await chrome.tabs.reload(currentTabId);
                     await waitForPageLoad(currentTabId, 10000);
-                    result = { success: true, message: `Navigated to ${url}` };
-                }
-                break;
+                    result = { success: true, message: 'Page refreshed' };
+                    break;
 
-            case 'new_tab':
-                if (!value) {
-                    result = { success: false, error: 'No URL for new_tab' };
-                } else {
-                    let url = value;
-                    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                        url = 'https://' + url;
-                    }
-                    log(`Opening new tab: ${url}...`, 'action');
-                    const newTab = await chrome.tabs.create({ url: url, active: true });
-                    currentTabId = newTab.id;
-                    await waitForPageLoad(currentTabId, 10000);
-                    result = { success: true, message: `Opened new tab: ${url}` };
-                }
-                break;
-
-            case 'wait':
-                const waitMs = Math.min(parseInt(value) || 1000, 5000);
-                log(`Waiting ${waitMs}ms...`, 'action');
-                await sleep(waitMs);
-                result = { success: true, message: `Waited ${waitMs}ms` };
-                break;
-
-            case 'go_back':
-                log('Going back...', 'action');
-                await chrome.tabs.goBack(currentTabId);
-                await waitForPageLoad(currentTabId, 5000);
-                result = { success: true, message: 'Went back' };
-                break;
-
-            case 'refresh':
-                log('Refreshing page...', 'action');
-                await chrome.tabs.reload(currentTabId);
-                await waitForPageLoad(currentTabId, 10000);
-                result = { success: true, message: 'Page refreshed' };
-                break;
-
-            case 'human_help':
-                const helpMessage = agentResponse.message_to_user || 'Please help me with this step.';
-                log(`🆘 Human help needed: ${helpMessage}`, 'warning');
-                showHumanHelp(helpMessage);
-                isPaused = true;
-                updateUI();
-                result = { success: true, message: 'Waiting for human help' };
-                break;
-
-            case 'done':
-                log('✅ Goal accomplished!', 'action');
-                isRunning = false;
-                result = { success: true, message: 'Task completed' };
-                break;
-
-            case 'extract':
-                if (!targetId) {
-                    result = { success: false, error: 'No target_id for extract' };
-                } else {
-                    log(`Extracting data from element ${targetId}...`, 'action');
-                    result = await chrome.tabs.sendMessage(currentTabId, {
-                        type: 'EXECUTE_ACTION',
-                        action: { type: 'extract', target_id: targetId }
-                    });
-                    if (result.success && result.data) {
-                        log(`📋 Extracted: "${result.data.text.substring(0, 100)}..."`, 'info');
-                    }
-                }
-                break;
-
-            // ==================== MULTI-TAB ACTIONS ====================
-            case 'switch_tab':
-                try {
-                    const tabIndex = parseInt(value) || 0;
-                    const allTabs = await chrome.tabs.query({ currentWindow: true });
-                    if (tabIndex >= 0 && tabIndex < allTabs.length) {
-                        const targetTab = allTabs[tabIndex];
-                        await chrome.tabs.update(targetTab.id, { active: true });
-                        currentTabId = targetTab.id;
-                        log(`🔄 Switched to tab ${tabIndex}: ${targetTab.title?.substring(0, 30)}...`, 'action');
-                        await sleep(500);
-                        result = { success: true, message: `Switched to tab ${tabIndex}` };
+                case 'extract':
+                    if (!targetId) {
+                        result = { success: false, error: 'No target_id for extract' };
                     } else {
-                        result = { success: false, error: `Tab index ${tabIndex} out of range (0-${allTabs.length - 1})` };
+                        log(`Extracting data from element ${targetId}...`, 'action');
+                        result = await chrome.tabs.sendMessage(currentTabId, {
+                            type: 'EXECUTE_ACTION',
+                            action: { type: 'extract', target_id: targetId }
+                        });
+                        if (result.success && result.data) {
+                            log(`📋 Extracted: "${result.data.text.substring(0, 100)}..."`, 'info');
+                        }
                     }
-                } catch (e) {
-                    result = { success: false, error: e.message };
-                }
-                break;
+                    break;
 
-            case 'close_tab':
-                try {
-                    const allTabs = await chrome.tabs.query({ currentWindow: true });
-                    if (allTabs.length > 1) {
-                        await chrome.tabs.remove(currentTabId);
-                        const remainingTabs = await chrome.tabs.query({ currentWindow: true, active: true });
-                        currentTabId = remainingTabs[0]?.id;
-                        log(`🗑️ Closed tab, now on: ${remainingTabs[0]?.title?.substring(0, 30)}...`, 'action');
-                        result = { success: true, message: 'Tab closed' };
+                // ==================== MULTI-TAB ACTIONS ====================
+                case 'switch_tab':
+                    try {
+                        const tabIndex = parseInt(value) || 0;
+                        const allTabs = await chrome.tabs.query({ currentWindow: true });
+                        if (tabIndex >= 0 && tabIndex < allTabs.length) {
+                            const targetTab = allTabs[tabIndex];
+                            await chrome.tabs.update(targetTab.id, { active: true });
+                            currentTabId = targetTab.id;
+                            log(`🔄 Switched to tab ${tabIndex}: ${targetTab.title?.substring(0, 30)}...`, 'action');
+                            await sleep(500);
+                            result = { success: true, message: `Switched to tab ${tabIndex}` };
+                        } else {
+                            result = { success: false, error: `Tab index ${tabIndex} out of range (0-${allTabs.length - 1})` };
+                        }
+                    } catch (e) {
+                        result = { success: false, error: e.message };
+                    }
+                    break;
+
+                case 'close_tab':
+                    try {
+                        const allTabs = await chrome.tabs.query({ currentWindow: true });
+                        if (allTabs.length > 1) {
+                            await chrome.tabs.remove(currentTabId);
+                            const remainingTabs = await chrome.tabs.query({ currentWindow: true, active: true });
+                            currentTabId = remainingTabs[0]?.id;
+                            log(`🗑️ Closed tab, now on: ${remainingTabs[0]?.title?.substring(0, 30)}...`, 'action');
+                            result = { success: true, message: 'Tab closed' };
+                        } else {
+                            result = { success: false, error: 'Cannot close the last tab' };
+                        }
+                    } catch (e) {
+                        result = { success: false, error: e.message };
+                    }
+                    break;
+
+                case 'list_tabs':
+                    try {
+                        const allTabs = await chrome.tabs.query({ currentWindow: true });
+                        const tabList = allTabs.map((t, i) => `[${i}] ${t.title?.substring(0, 40)} ${t.id === currentTabId ? '(current)' : ''}`).join('\n');
+                        log(`📑 Open tabs:\n${tabList}`, 'info');
+                        result = { success: true, message: `Found ${allTabs.length} tabs`, tabList };
+                    } catch (e) {
+                        result = { success: false, error: e.message };
+                    }
+                    break;
+
+                // ==================== DATA COLLECTION ACTIONS ====================
+                case 'collect_item':
+                    try {
+                        let itemData;
+                        if (typeof value === 'string') {
+                            itemData = JSON.parse(value);
+                        } else {
+                            itemData = value;
+                        }
+                        itemData._timestamp = Date.now();
+                        itemData._index = collectedItems.length + 1;
+                        collectedItems.push(itemData);
+                        log(`📦 Collected item #${itemData._index}: ${itemData.name || JSON.stringify(itemData).substring(0, 50)}...`, 'action');
+                        result = { success: true, message: `Item collected (${collectedItems.length} total)` };
+                    } catch (e) {
+                        result = { success: false, error: `Failed to parse item: ${e.message}` };
+                    }
+                    break;
+
+                case 'show_collection':
+                    if (collectedItems.length === 0) {
+                        log('📋 Collection is empty', 'info');
+                        result = { success: true, message: 'No items collected yet' };
                     } else {
-                        result = { success: false, error: 'Cannot close the last tab' };
+                        log(`📋 COLLECTED ${collectedItems.length} ITEMS:`, 'info');
+                        collectedItems.forEach((item, i) => {
+                            const display = item.name ? `${item.name} - ${item.price || 'N/A'}` : JSON.stringify(item);
+                            log(`  ${i + 1}. ${display}`, 'info');
+                        });
+                        result = { success: true, message: `Showing ${collectedItems.length} items`, items: collectedItems };
                     }
-                } catch (e) {
-                    result = { success: false, error: e.message };
-                }
-                break;
+                    break;
 
-            case 'list_tabs':
-                try {
-                    const allTabs = await chrome.tabs.query({ currentWindow: true });
-                    const tabList = allTabs.map((t, i) => `[${i}] ${t.title?.substring(0, 40)} ${t.id === currentTabId ? '(current)' : ''}`).join('\n');
-                    log(`📑 Open tabs:\n${tabList}`, 'info');
-                    result = { success: true, message: `Found ${allTabs.length} tabs`, tabList };
-                } catch (e) {
-                    result = { success: false, error: e.message };
-                }
-                break;
-
-            // ==================== DATA COLLECTION ACTIONS ====================
-            case 'collect_item':
-                try {
-                    let itemData;
-                    if (typeof value === 'string') {
-                        itemData = JSON.parse(value);
+                case 'paste_collection':
+                    if (collectedItems.length === 0) {
+                        result = { success: false, error: 'No items to paste' };
                     } else {
-                        itemData = value;
+                        const text = collectedItems.map(item => {
+                            return Object.entries(item)
+                                .filter(([k]) => !k.startsWith('_'))
+                                .map(([k, v]) => `${k}: ${v}`)
+                                .join('\n');
+                        }).join('\n\n-------------------\n\n');
+
+                        log(`📝 Pasting ${collectedItems.length} items into page...`, 'action');
+                        // Use type action mechanism to paste
+                        result = await chrome.tabs.sendMessage(currentTabId, {
+                            type: 'EXECUTE_ACTION',
+                            action: { type: 'type', value: text, target_id: targetId || null } // Use target_id if provided, else active element
+                        });
                     }
-                    itemData._timestamp = Date.now();
-                    itemData._index = collectedItems.length + 1;
-                    collectedItems.push(itemData);
-                    log(`📦 Collected item #${itemData._index}: ${itemData.name || JSON.stringify(itemData).substring(0, 50)}...`, 'action');
-                    result = { success: true, message: `Item collected (${collectedItems.length} total)` };
-                } catch (e) {
-                    result = { success: false, error: `Failed to parse item: ${e.message}` };
-                }
-                break;
+                    break;
 
-            case 'show_collection':
-                if (collectedItems.length === 0) {
-                    log('📋 Collection is empty', 'info');
-                    result = { success: true, message: 'No items collected yet' };
-                } else {
-                    log(`📋 COLLECTED ${collectedItems.length} ITEMS:`, 'info');
-                    collectedItems.forEach((item, i) => {
-                        const display = item.name ? `${item.name} - ${item.price || 'N/A'}` : JSON.stringify(item);
-                        log(`  ${i + 1}. ${display}`, 'info');
-                    });
-                    result = { success: true, message: `Showing ${collectedItems.length} items`, items: collectedItems };
-                }
-                break;
-
-            case 'paste_collection':
-                if (collectedItems.length === 0) {
-                    result = { success: false, error: 'No items to paste' };
-                } else {
-                    const text = collectedItems.map(item => {
-                        return Object.entries(item)
-                            .filter(([k]) => !k.startsWith('_'))
-                            .map(([k, v]) => `${k}: ${v}`)
-                            .join('\n');
-                    }).join('\n\n-------------------\n\n');
-
-                    log(`📝 Pasting ${collectedItems.length} items into page...`, 'action');
-                    // Use type action mechanism to paste
-                    result = await chrome.tabs.sendMessage(currentTabId, {
-                        type: 'EXECUTE_ACTION',
-                        action: { type: 'type', value: text, target_id: targetId || null } // Use target_id if provided, else active element
-                    });
-                }
-                break;
-
-            default:
-                result = { success: false, error: `Unknown action: ${action}` };
+                default:
+                    result = { success: false, error: `Unknown action: ${action}` };
+            }
         }
     } catch (error) {
         result = { success: false, error: error.message };
@@ -746,26 +753,65 @@ async function executeAction(agentResponse) {
     return result;
 }
 
-// ==================== MAIN LOOP ====================
-async function runAgentLoop() {
-    const apiKey = apiKeyInput.value.trim();
-    const goal = goalInput.value.trim();
+// ==================== CHAT UI ====================
+function addChatMessage(role, text, type = 'text') {
+    if (!chatHistory) return;
 
-    if (!apiKey) {
-        log('Please enter your Gemini API key', 'error');
+    const div = document.createElement('div');
+    div.className = `chat-message ${role} ${type}`;
+
+    // Convert newlines to breaks
+    const formattedText = escapeHtml(text).replace(/\n/g, '<br>');
+    div.innerHTML = formattedText;
+
+    const time = document.createElement('span');
+    time.className = 'chat-timestamp';
+    time.textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    div.appendChild(time);
+
+    chatHistory.appendChild(div);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+}
+
+async function handleUserMessage() {
+    const text = chatInput.value.trim();
+    if (!text) return;
+
+    addChatMessage('user', text);
+    chatInput.value = '';
+
+    // Auto-resize reset
+    chatInput.style.height = 'auto';
+
+    if (waitingForInput && inputResolver) {
+        inputResolver(text);
+        waitingForInput = false;
+        inputResolver = null;
+        setStatus('Resuming...', 'running');
         return;
     }
 
+    if (!isRunning) {
+        await startAgent(text);
+    }
+}
+
+// ==================== AGENT CORE ====================
+async function startAgent(goal) {
+    if (isRunning) return;
     if (!goal) {
-        log('Please enter a goal for the agent', 'error');
+        addChatMessage('system', 'Please enter a goal first.');
         return;
     }
 
-    await saveApiKey(apiKey);
+    await saveApiKey(apiKeyInput.value.trim());
+    await saveApiKey(apiKeyInput.value.trim());
+    // saveGoalHistory(goal); // History removed
 
     const tab = await getCurrentTab();
     if (!tab) {
         log('No active tab found', 'error');
+        addChatMessage('agent', 'Error: No active tab found. Please open a tab and try again.');
         return;
     }
 
@@ -774,6 +820,7 @@ async function runAgentLoop() {
     // Handle Chrome internal pages
     if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url === 'about:blank') {
         log('On Chrome internal page, navigating to Google...', 'info');
+        addChatMessage('agent', 'Navigating to Google.com as current tab is an internal Chrome page.');
         await chrome.tabs.update(currentTabId, { url: 'https://www.google.com' });
         await waitForPageLoad(currentTabId, 10000);
     }
@@ -794,6 +841,7 @@ async function runAgentLoop() {
     setProgressActive(true);
     updateUI();
 
+    addChatMessage('agent', `🚀 Starting agent with goal: "${goal}"`);
     log(`🚀 Starting agent with goal: "${goal}"`, 'info');
 
     let iteration = 0;
@@ -815,6 +863,7 @@ async function runAgentLoop() {
             const scriptReady = await ensureContentScript(currentTabId);
             if (!scriptReady) {
                 log('Content script not available, retrying...', 'warning');
+                addChatMessage('agent', 'Warning: Content script not available, retrying...');
                 await sleep(2000);
                 continue;
             }
@@ -826,11 +875,13 @@ async function runAgentLoop() {
                 tagResponse = await chrome.tabs.sendMessage(currentTabId, { type: 'TAG_PAGE' });
             } catch (error) {
                 log(`Page communication failed: ${error.message}`, 'error');
+                addChatMessage('agent', `Error: Page communication failed. ${error.message}`);
                 lastError = error.message;
                 consecutiveErrors++;
 
                 if (consecutiveErrors >= 3) {
                     log('Too many consecutive errors, stopping...', 'error');
+                    addChatMessage('agent', 'Error: Too many consecutive page communication errors, stopping.');
                     break;
                 }
                 await sleep(2000);
@@ -839,6 +890,7 @@ async function runAgentLoop() {
 
             if (!tagResponse?.success) {
                 log('Failed to analyze page', 'error');
+                addChatMessage('agent', 'Error: Failed to analyze page content.');
                 continue;
             }
 
@@ -858,11 +910,13 @@ async function runAgentLoop() {
 
             // Call Gemini
             log('🤔 Thinking...', 'thought');
+            addChatMessage('agent', 'Thinking about the next step...');
             let agentResponse;
             try {
-                agentResponse = await callGemini(apiKey, goal, screenshot, elementContext, pageInfo);
+                agentResponse = await callGemini(apiKeyInput.value.trim(), goal, screenshot, elementContext, pageInfo);
             } catch (error) {
                 log(`AI error: ${error.message}`, 'error');
+                addChatMessage('agent', `AI Error: ${error.message}`);
                 lastError = error.message;
                 consecutiveErrors++;
                 await sleep(2000);
@@ -876,6 +930,7 @@ async function runAgentLoop() {
 
             if (agentResponse.thought) {
                 log(`💭 ${agentResponse.thought}`, 'thought');
+                addChatMessage('agent', `Thought: ${agentResponse.thought}`);
             }
 
             if (agentResponse.plan && agentResponse.plan.length > 0) {
@@ -892,6 +947,7 @@ async function runAgentLoop() {
                 const validation = window.AgentRouter.validateAction(agentResponse, elements);
                 if (!validation.isValid) {
                     log(`⚠️ Action validation failed: ${validation.errors.join(', ')}`, 'warning');
+                    addChatMessage('agent', `Warning: Action validation failed: ${validation.errors.join(', ')}`);
                     lastError = validation.errors.join(', ');
                     consecutiveErrors++;
                     continue;
@@ -900,6 +956,7 @@ async function runAgentLoop() {
 
             // Execute the action
             log(`⚡ Action: ${agentResponse.action}${agentResponse.target_id ? ` → Element ${agentResponse.target_id}` : ''}`, 'action');
+            addChatMessage('agent', `Executing: ${agentResponse.action}${agentResponse.target_id ? ` on element ${agentResponse.target_id}` : ''}`);
             const result = await executeAction(agentResponse);
 
             if (result.success) {
@@ -908,19 +965,20 @@ async function runAgentLoop() {
                 recordActionStats(true);
             } else {
                 log(`✗ ${result.error}`, 'error');
+                addChatMessage('agent', `Action failed: ${result.error}`);
                 lastError = result.error;
                 consecutiveErrors++;
-                recordActionStats(false);
             }
 
             // Clear tags after action
             try {
                 await chrome.tabs.sendMessage(currentTabId, { type: 'CLEAR_TAGS' });
-            } catch (e) { }
+            } catch (e) { /* ignore */ }
 
             // Check for too many errors
             if (consecutiveErrors >= 5) {
                 log('Too many consecutive errors, requesting human help...', 'warning');
+                addChatMessage('agent', 'Too many consecutive errors. I need human help to proceed.');
                 showHumanHelp('The agent is having trouble. Please check the page and click Resume.');
                 isPaused = true;
                 updateUI();
@@ -932,6 +990,7 @@ async function runAgentLoop() {
         } catch (error) {
             log(`Loop error: ${error.message}`, 'error');
             console.error('[GeminiPilot] Loop error:', error);
+            addChatMessage('agent', `Critical Error: ${error.message}`);
             consecutiveErrors++;
             await sleep(2000);
         }
@@ -939,6 +998,7 @@ async function runAgentLoop() {
 
     if (iteration >= maxIterations) {
         log(`Reached maximum iterations (${maxIterations})`, 'warning');
+        addChatMessage('agent', `Warning: Reached maximum iterations (${maxIterations}). Stopping.`);
     }
 
     // Cleanup
@@ -950,9 +1010,10 @@ async function runAgentLoop() {
         if (currentTabId) {
             await chrome.tabs.sendMessage(currentTabId, { type: 'CLEAR_TAGS' });
         }
-    } catch (e) { }
+    } catch (e) { /* ignore */ }
 
     log('Agent stopped', 'info');
+    addChatMessage('agent', 'Agent stopped.');
 }
 
 // ==================== RESUME HANDLER ====================
@@ -960,6 +1021,7 @@ function resumeAgent() {
     if (!isRunning || !isPaused) return;
 
     log('Resuming agent...', 'info');
+    addChatMessage('agent', 'Resuming operation.');
     hideHumanHelp();
     isPaused = false;
     lastError = null;
@@ -970,6 +1032,7 @@ function resumeAgent() {
 // ==================== STOP HANDLER ====================
 function stopAgent() {
     log('Stopping agent...', 'warning');
+    addChatMessage('agent', 'Agent stopped by user.');
     isRunning = false;
     isPaused = false;
     hideHumanHelp();
@@ -983,15 +1046,16 @@ function stopAgent() {
 }
 
 // ==================== EVENT LISTENERS ====================
-startBtn.addEventListener('click', () => {
-    if (!isRunning) {
-        saveGoalHistory(goalInput.value.trim());
-        runAgentLoop();
-    }
-});
+// Removed old startBtn listener, now handled by handleUserMessage
+// startBtn.addEventListener('click', () => {
+//     if (!isRunning) {
+//         saveGoalHistory(goalInput.value.trim());
+//         runAgentLoop();
+//     }
+// });
 
-stopBtn.addEventListener('click', stopAgent);
-resumeBtn.addEventListener('click', resumeAgent);
+// stopBtn.addEventListener('click', stopAgent); // Replaced in init
+// resumeBtn.addEventListener('click', resumeAgent);
 clearLogsBtn.addEventListener('click', clearLogs);
 
 apiKeyInput.addEventListener('change', () => {
@@ -1000,13 +1064,10 @@ apiKeyInput.addEventListener('change', () => {
 
 // ==================== KEYBOARD SHORTCUTS ====================
 document.addEventListener('keydown', (e) => {
-    // Ctrl+Enter or Cmd+Enter to Start
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    // Ctrl+Enter or Cmd+Enter to Start (if chatInput is focused)
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && document.activeElement === chatInput) {
         e.preventDefault();
-        if (!isRunning) {
-            saveGoalHistory(goalInput.value.trim());
-            runAgentLoop();
-        }
+        handleUserMessage();
     }
     // Escape to Stop
     if (e.key === 'Escape' && isRunning) {
@@ -1014,50 +1075,13 @@ document.addEventListener('keydown', (e) => {
         stopAgent();
     }
     // Space to Resume (only when paused and not focused on input)
-    if (e.key === ' ' && isPaused && document.activeElement !== goalInput && document.activeElement !== apiKeyInput) {
+    if (e.key === ' ' && isPaused && document.activeElement !== chatInput && document.activeElement !== apiKeyInput) {
         e.preventDefault();
         resumeAgent();
     }
 });
 
-// ==================== GOAL HISTORY ====================
-let goalHistory = [];
-
-async function loadGoalHistory() {
-    const result = await chrome.storage.local.get('goalHistory');
-    goalHistory = result.goalHistory || [];
-}
-
-async function saveGoalHistory(goal) {
-    if (!goal || goal.length < 3) return;
-
-    // Remove duplicates and add to front
-    goalHistory = goalHistory.filter(g => g !== goal);
-    goalHistory.unshift(goal);
-
-    // Keep only last 10
-    goalHistory = goalHistory.slice(0, 10);
-
-    await chrome.storage.local.set({ goalHistory });
-    displayGoalChips();
-}
-
-function displayGoalChips() {
-    if (!goalHistoryEl) return;
-
-    goalHistoryEl.innerHTML = '';
-    goalHistory.slice(0, 5).forEach(goal => {
-        const chip = document.createElement('div');
-        chip.className = 'goal-chip';
-        chip.textContent = goal.length > 25 ? goal.substring(0, 25) + '...' : goal;
-        chip.title = goal;
-        chip.addEventListener('click', () => {
-            goalInput.value = goal;
-            goalInput.focus();
-        });
-        goalHistoryEl.appendChild(chip);
-    });
-}
+// Goal History Removed
 
 // ==================== STATS ====================
 async function loadStats() {
@@ -1071,15 +1095,6 @@ async function saveStats() {
     updateStatsDisplay();
 }
 
-function updateStatsDisplay() {
-    if (sessionCountEl) sessionCountEl.textContent = stats.sessions;
-    if (actionCountEl) actionCountEl.textContent = stats.actions;
-    if (successRateEl) {
-        const rate = stats.actions > 0 ? Math.round((stats.successes / stats.actions) * 100) : 0;
-        successRateEl.textContent = `${rate}%`;
-    }
-}
-
 function recordActionStats(success) {
     stats.actions++;
     if (success) stats.successes++;
@@ -1088,37 +1103,16 @@ function recordActionStats(success) {
 
 // ==================== TIMER ====================
 function startTimer() {
-    sessionStartTime = Date.now();
-    if (timerInterval) clearInterval(timerInterval);
-    timerInterval = setInterval(updateTimer, 1000);
-    updateTimer();
+    // Timer removed from UI
 }
 
 function stopTimer() {
-    if (timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null;
-    }
-    // Save session time to stats
-    if (sessionStartTime) {
-        stats.totalTime += Math.floor((Date.now() - sessionStartTime) / 1000);
-        saveStats();
-    }
+    // Timer removed from UI
 }
 
 function updateTimer() {
-    if (!sessionStartTime || !elapsedTimeEl) return;
-    const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
-    const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
-    const secs = (elapsed % 60).toString().padStart(2, '0');
-    elapsedTimeEl.textContent = `${mins}:${secs}`;
-
-    // Update progress bar animation
-    if (progressFill && isRunning) {
-        const cycle = (Date.now() / 50) % 100;
-        progressFill.style.width = `${30 + Math.sin(cycle * 0.1) * 20}%`;
-    }
 }
+
 
 // ==================== PROGRESS BAR ====================
 function setProgressActive(active) {
@@ -1160,9 +1154,9 @@ function toggleSettings() {
     settingsModal.classList.toggle('visible');
     if (settingsModal.classList.contains('visible')) {
         // Populate key when opening
-        chrome.storage.local.get(['gemini_api_key'], (result) => {
-            if (result.gemini_api_key && apiKeyInput) {
-                apiKeyInput.value = result.gemini_api_key;
+        chrome.storage.local.get(['geminiApiKey'], (result) => {
+            if (result.geminiApiKey && apiKeyInput) {
+                apiKeyInput.value = result.geminiApiKey;
             }
         });
     }
@@ -1179,10 +1173,15 @@ async function saveSettings() {
     }
 }
 
-// ==================== LOGS TOGGLE ====================
+// ==================== LOGS MODAL ====================
 function toggleLogs() {
-    if (!logsContainer) return;
-    logsContainer.classList.toggle('collapsed');
+    if (!logsModal) return;
+    logsModal.classList.toggle('visible');
+
+    // Auto-scroll to bottom of logs when opening
+    if (logsModal.classList.contains('visible') && logsDiv) {
+        logsDiv.scrollTop = logsDiv.scrollHeight;
+    }
 }
 
 // ==================== EXPORT LOGS ====================
@@ -1214,51 +1213,51 @@ function setupTemplates() {
         btn.addEventListener('click', () => {
             const template = btn.dataset.template;
             if (template) {
-                goalInput.value = template;
-                goalInput.focus();
-                // Place cursor at end
-                goalInput.setSelectionRange(template.length, template.length);
+                chatInput.value = template;
+                chatInput.focus();
+                // Optional: Auto-send? No, let user confirm
             }
         });
     });
 }
 
 // ==================== ENHANCED STATS ====================
+// ==================== ENHANCED STATS ====================
 function updateStatsDisplay() {
-    if (sessionCountEl) sessionCountEl.textContent = stats.sessions;
-    if (actionCountEl) actionCountEl.textContent = stats.actions;
-    if (successRateEl) {
-        const rate = stats.actions > 0 ? Math.round((stats.successes / stats.actions) * 100) : 0;
-        successRateEl.textContent = `${rate}%`;
-    }
-    if (avgTimeEl && stats.sessions > 0) {
-        const avgSecs = Math.round(stats.totalTime / stats.sessions);
-        if (avgSecs < 60) {
-            avgTimeEl.textContent = `${avgSecs}s`;
-        } else {
-            avgTimeEl.textContent = `${Math.floor(avgSecs / 60)}m`;
-        }
-    }
+    // Stats UI removed
 }
 
 // ==================== INITIALIZATION ====================
 async function init() {
     await loadApiKey();
-    await loadGoalHistory();
     await loadStats();
-    displayGoalChips();
     setupTemplates();
 
     // Setup event listeners for new features
+    if (sendBtn) {
+        sendBtn.addEventListener('click', handleUserMessage);
+    }
+    if (chatInput) {
+        chatInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleUserMessage();
+            }
+        });
+    }
+
     if (toggleScreenshotBtn) {
         toggleScreenshotBtn.addEventListener('click', toggleScreenshotPreview);
     }
+
     if (exportBtn) {
         exportBtn.addEventListener('click', exportLogs);
     }
-    if (logsHeader) {
-        logsHeader.addEventListener('click', toggleLogs);
-        logsHeader.style.cursor = 'pointer';
+    if (openLogsBtn) {
+        openLogsBtn.addEventListener('click', toggleLogs);
+    }
+    if (closeLogsBtn) {
+        closeLogsBtn.addEventListener('click', toggleLogs);
     }
     if (settingsBtn) {
         settingsBtn.addEventListener('click', toggleSettings);

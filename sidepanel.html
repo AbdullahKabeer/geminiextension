@@ -415,6 +415,9 @@
             background: var(--bg-tertiary);
             border-radius: 10px;
             border: 1px solid var(--border-color);
+            margin-top: auto;
+            /* Push to bottom */
+            flex-shrink: 0;
         }
 
         .status-indicator {
@@ -837,6 +840,168 @@
             background: var(--border-color);
             border-radius: 3px;
         }
+
+        /* Chat Interface */
+        .chat-section {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding: 0 14px;
+            min-height: 200px;
+            /* Minimum height for chat area */
+        }
+
+        .chat-message {
+            max-width: 85%;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            position: relative;
+            animation: fadeIn 0.3s ease;
+            word-break: break-word;
+        }
+
+        .chat-message.user {
+            align-self: flex-end;
+            background: linear-gradient(135deg, var(--accent-purple-dim), var(--accent-purple));
+            color: white;
+            border-bottom-right-radius: 4px;
+            margin-left: auto;
+        }
+
+        .chat-message.agent {
+            align-self: flex-start;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-bottom-left-radius: 4px;
+            margin-right: auto;
+        }
+
+        .chat-message.system {
+            align-self: center;
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            padding: 6px 12px;
+            border-radius: 20px;
+        }
+
+        .chat-message.error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            align-self: center;
+        }
+
+        .chat-timestamp {
+            font-size: 0.6rem;
+            opacity: 0.7;
+            margin-top: 4px;
+            text-align: right;
+            display: block;
+        }
+
+        /* Chat Input Area - Fixed at bottom */
+        .chat-input-container {
+            padding: 14px;
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 8px;
+            flex-direction: column;
+        }
+
+        .chat-input-row {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+            /* Align bottom so input grows up */
+            position: relative;
+        }
+
+        .chat-input {
+            flex: 1;
+            /* Take remaining space */
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 12px 14px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.9rem;
+            line-height: 1.4;
+            resize: none;
+            /* Auto-resize via JS */
+            height: 48px;
+            /* Fixed initial height matching button approx */
+            max-height: 120px;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+            box-sizing: border-box;
+            /* Important for padding */
+        }
+
+        .chat-input:focus {
+            outline: none;
+            border-color: var(--accent-purple);
+            box-shadow: 0 0 0 2px var(--accent-purple-glow);
+        }
+
+        .btn-send {
+            width: 48px;
+            /* Match input height */
+            height: 48px;
+            border-radius: 12px;
+            background: var(--accent-purple);
+            color: white;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+            /* Don't shrink */
+        }
+
+        .btn-send:hover:not(:disabled) {
+            background: var(--accent-purple-dim);
+            transform: scale(1.05);
+        }
+
+        .btn-send:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            background: var(--bg-tertiary);
+        }
+
+        .chat-controls-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .btn-stop-small {
+            font-size: 0.7rem;
+            padding: 4px 8px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+            border-radius: 6px;
+            cursor: pointer;
+            display: none;
+            /* Hidden by default */
+        }
+
+        .btn-stop-small.visible {
+            display: block;
+        }
+
+        .btn-stop-small:hover {
+            background: rgba(239, 68, 68, 0.2);
+        }
     </style>
 </head>
 
@@ -852,7 +1017,7 @@
                 </div>
             </div>
             <div class="header-actions">
-                <button class="icon-btn" id="exportBtn" title="Export Logs">📥</button>
+                <button class="icon-btn" id="openLogsBtn" title="View Logs">📜</button>
                 <button class="icon-btn" id="settingsBtn" title="Settings">⚙️</button>
             </div>
         </div>
@@ -864,25 +1029,7 @@
 
         <!-- Main Scrollable Content -->
         <div class="main-content">
-            <!-- Stats -->
-            <div class="stats-grid glass-card">
-                <div class="stat-card">
-                    <div class="stat-value" id="sessionCount">0</div>
-                    <div class="stat-label">Sessions</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="actionCount">0</div>
-                    <div class="stat-label">Actions</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="successRate">--%</div>
-                    <div class="stat-label">Success</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="avgTime">--</div>
-                    <div class="stat-label">Avg Time</div>
-                </div>
-            </div>
+
 
             <!-- Quick templates -->
             <div class="templates-section glass-card">
@@ -909,49 +1056,24 @@
                 </div>
             </div>
 
-            <!-- Form -->
-            <div class="form-section glass-card">
-                <div class="form-group">
-                    <label for="goal">
-                        Goal / Instruction
-                        <span class="label-hint">What should I do?</span>
-                    </label>
-                    <textarea id="goal" placeholder="e.g., Go to Amazon and find top rated headphones..."></textarea>
-
-                    <!-- Goal History -->
-                    <div class="goal-history" id="goalHistory">
-                        <!-- Chips will be added via JS -->
-                    </div>
+            <!-- Chat History Area -->
+            <div class="chat-section" id="chatHistory">
+                <!-- Welcome Message -->
+                <div class="chat-message agent">
+                    Hello! I'm GeminiPilot. 👋<br>
+                    I can browse the web for you. Try asking me to find something or navigate somewhere!
+                    <span class="chat-timestamp">Just now</span>
                 </div>
-            </div>
-
-            <!-- Controls -->
-            <div class="controls">
-                <button class="btn-start" id="startBtn">
-                    <span>▶</span> Start Agent
-                </button>
-                <button class="btn-stop" id="stopBtn" disabled>
-                    <span>◼</span> Stop
-                </button>
-                <button class="btn-resume" id="resumeBtn">
-                    <span>↻</span> Resume
-                </button>
-            </div>
-
-            <!-- Human Help Banner -->
-            <div class="human-help-banner" id="humanHelpBanner">
-                <p id="humanHelpMessage">The agent needs your help!</p>
             </div>
 
             <!-- Status -->
             <div class="status-bar">
                 <div class="status-indicator">
                     <div class="status-dot" id="statusDot"></div>
-                    <span class="status-text" id="statusText">Ready to go</span>
+                    <span class="status-text" id="statusText">Ready for instructions</span>
                 </div>
-                <div class="status-right">
-                    <span class="status-time" id="elapsedTime">00:00</span>
-                </div>
+                <!-- Stop button moved here for better access when running -->
+                <button class="btn-stop-small" id="stopBtn">◼ Stop Agent</button>
             </div>
 
             <!-- Screenshot Preview -->
@@ -965,22 +1087,44 @@
                 <img id="screenshotImg" src="" alt="Page screenshot" style="display: none;">
             </div>
 
-            <!-- Logs -->
-            <div class="logs-container glass-card" id="logsContainer">
-                <div class="logs-header" id="logsHeader">
-                    <div class="logs-header-left">
-                        <span class="logs-toggle">▼</span>
-                        <span class="logs-header-title">Activity Log</span>
-                        <span class="log-count" id="logCount">0</span>
+            <!-- Logs Modal (Reusing settings-modal class for overlay) -->
+            <div class="settings-modal" id="logsModal">
+                <div class="settings-content" style="height: 70vh; display: flex; flex-direction: column;">
+                    <div class="settings-header">
+                        <span class="settings-title">
+                            Activity Log
+                            <span style="font-size: 0.8rem; opacity: 0.7; margin-left: 8px;" id="logCount">0</span>
+                        </span>
+                        <button class="close-settings" id="closeLogsBtn">×</button>
                     </div>
-                    <div class="logs-actions">
-                        <button id="toggleScreenshot">📷</button>
-                        <button id="clearLogsBtn" title="Clear Logs">🗑️</button>
+
+                    <div style="padding: 10px; display: flex; gap: 10px; border-bottom: 1px solid var(--border-color);">
+                        <button id="exportBtn"
+                            style="padding: 6px 12px; font-size: 0.8rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; cursor: pointer;">📥
+                            Export</button>
+                        <button id="clearLogsBtn"
+                            style="padding: 6px 12px; font-size: 0.8rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; cursor: pointer;">🗑️
+                            Clear</button>
+                        <button id="toggleScreenshot"
+                            style="padding: 6px 12px; font-size: 0.8rem; background: var(--bg-tertiary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; cursor: pointer;"
+                            title="Toggle Screenshots">📷</button>
+                    </div>
+
+                    <div class="logs" id="logs" style="flex: 1; overflow-y: auto; padding: 10px; max-height: none;">
+                        <!-- Logs will appear here -->
                     </div>
                 </div>
-                <div class="logs" id="logs">
-                    <!-- Logs will appear here -->
-                </div>
+            </div>
+
+        </div><!-- End main-content -->
+
+        <!-- Chat Input Fixed at Bottom -->
+        <div class="chat-input-container">
+            <div class="chat-input-row">
+                <textarea class="chat-input" id="chatInput" placeholder="Message GeminiPilot..." rows="1"></textarea>
+                <button class="btn-send" id="sendBtn" title="Send (Cmd+Enter)">
+                    ➤
+                </button>
             </div>
         </div>
 
@@ -1009,7 +1153,7 @@
         <div class="footer">
             <span class="footer-text">Powered by Gemini 2.0 Flash ⚡</span>
         </div>
-    </div>
+    </div><!-- End container -->
 
     <script src="prompts.js"></script>
     <script src="agentRouter.js"></script>
