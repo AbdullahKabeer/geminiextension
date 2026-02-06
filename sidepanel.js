@@ -1,13 +1,17 @@
 /**
- * GeminiPilot 3 - Side Panel Brain & State Manager
- * Handles the main AI agent loop, Gemini API calls, and UI interactions
+ * GeminiPilot 3 - Enhanced Side Panel Brain & State Manager
+ * Advanced agent with task planning, memory, and intelligent error recovery
  */
 
 // ==================== STATE ====================
 let isRunning = false;
 let isPaused = false;
 let conversationHistory = [];
+let actionHistory = []; // Track all actions taken
 let currentTabId = null;
+let lastError = null;
+let consecutiveErrors = 0;
+let currentPlan = []; // Multi-step plan
 
 // ==================== DOM ELEMENTS ====================
 const apiKeyInput = document.getElementById('apiKey');
@@ -91,10 +95,6 @@ async function loadApiKey() {
 }
 
 // ==================== JSON SANITIZER ====================
-/**
- * Clean and parse JSON from Gemini response
- * Handles markdown code blocks, extra whitespace, and malformed JSON
- */
 function cleanJson(text) {
     if (!text || typeof text !== 'string') {
         throw new Error('Invalid input: expected string');
@@ -102,28 +102,39 @@ function cleanJson(text) {
 
     let cleaned = text.trim();
 
-    // Remove markdown code blocks (```json ... ```)
+    // Remove markdown code blocks
     const jsonBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (jsonBlockMatch) {
         cleaned = jsonBlockMatch[1].trim();
     }
 
-    // Remove any leading/trailing backticks that might remain
     cleaned = cleaned.replace(/^`+|`+$/g, '').trim();
 
-    // Try to find JSON object in the text
-    const jsonObjectMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (jsonObjectMatch) {
-        cleaned = jsonObjectMatch[0];
+    // Extract FIRST complete JSON object only
+    let braceCount = 0;
+    let startIndex = -1;
+    let endIndex = -1;
+
+    for (let i = 0; i < cleaned.length; i++) {
+        if (cleaned[i] === '{') {
+            if (startIndex === -1) startIndex = i;
+            braceCount++;
+        } else if (cleaned[i] === '}') {
+            braceCount--;
+            if (braceCount === 0 && startIndex !== -1) {
+                endIndex = i + 1;
+                break;
+            }
+        }
+    }
+
+    if (startIndex !== -1 && endIndex !== -1) {
+        cleaned = cleaned.substring(startIndex, endIndex);
     }
 
     // Fix common JSON issues
-    // Replace single quotes with double quotes (but be careful with apostrophes)
-    // This is a simple heuristic that may not work for all cases
     cleaned = cleaned.replace(/'([^']*)':/g, '"$1":');
     cleaned = cleaned.replace(/: '([^']*)'/g, ': "$1"');
-
-    // Remove trailing commas before } or ]
     cleaned = cleaned.replace(/,\s*([}\]])/g, '$1');
 
     try {
@@ -143,20 +154,17 @@ async function getCurrentTab() {
 
 async function ensureContentScript(tabId) {
     try {
-        // Try to ping the content script
         const response = await chrome.tabs.sendMessage(tabId, { type: 'PING' });
         if (response && response.success) {
             return true;
         }
     } catch (error) {
-        // Content script not loaded, inject it
         log('Injecting content script...', 'info');
         try {
             await chrome.scripting.executeScript({
                 target: { tabId: tabId },
                 files: ['content.js']
             });
-            // Wait a bit for the script to initialize
             await sleep(500);
             return true;
         } catch (injectError) {
@@ -167,12 +175,41 @@ async function ensureContentScript(tabId) {
     return true;
 }
 
+// ==================== PAGE LOAD DETECTION ====================
+async function waitForPageLoad(tabId, timeout = 10000) {
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeout) {
+        try {
+            const tab = await chrome.tabs.get(tabId);
+            if (tab.status === 'complete') {
+                // Additional wait for dynamic content
+                await sleep(500);
+                return true;
+            }
+        } catch (error) {
+            // Tab might not exist anymore
+            return false;
+        }
+        await sleep(200);
+    }
+
+    log('Page load timeout, continuing anyway...', 'warning');
+    return true;
+}
+
+async function waitForNetworkIdle(tabId, timeout = 5000) {
+    // Wait for page to stabilize (no new network requests)
+    await sleep(Math.min(timeout, 2000));
+    return true;
+}
+
 // ==================== SCREENSHOT ====================
 async function captureScreenshot() {
     try {
         const dataUrl = await chrome.tabs.captureVisibleTab(null, {
             format: 'jpeg',
-            quality: 80
+            quality: 85
         });
         return dataUrl;
     } catch (error) {
@@ -181,47 +218,99 @@ async function captureScreenshot() {
     }
 }
 
-// ==================== GEMINI API ====================
+// ==================== ACTION HISTORY ====================
+function recordAction(action, result) {
+    actionHistory.push({
+        timestamp: new Date().toISOString(),
+        action: action,
+        success: result.success,
+        message: result.message || result.error,
+        pageUrl: result.pageUrl
+    });
+
+    // Keep only last 20 actions
+    if (actionHistory.length > 20) {
+        actionHistory = actionHistory.slice(-20);
+    }
+}
+
+function formatActionHistory() {
+    if (actionHistory.length === 0) {
+        return 'No previous actions taken.';
+    }
+
+    return actionHistory.slice(-5).map((h, i) => {
+        const status = h.success ? '✓' : '✗';
+        return `${i + 1}. [${status}] ${h.action.type || h.action}: ${h.message || 'completed'}`;
+    }).join('\n');
+}
+
+// ==================== ENHANCED GEMINI API ====================
 async function callGemini(apiKey, goal, screenshot, elementContext, pageInfo) {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
-    const systemPrompt = `You are a browser automation agent called GeminiPilot. Your goal is to help the user accomplish their task by navigating and interacting with web pages.
+    const systemPrompt = `You are GeminiPilot, an advanced browser automation agent. You help users accomplish complex tasks by intelligently navigating and interacting with web pages.
 
-USER'S GOAL: ${goal}
+## USER'S GOAL
+${goal}
 
-CURRENT PAGE: ${pageInfo.title} (${pageInfo.url})
-SCROLL POSITION: ${pageInfo.scrollY}px of ${pageInfo.scrollHeight}px total
+## CURRENT STATE
+- **Page**: ${pageInfo.title || 'Unknown'}
+- **URL**: ${pageInfo.url || 'Unknown'}
+- **Scroll**: ${pageInfo.scrollY || 0}px / ${pageInfo.scrollHeight || 0}px
+- **Viewport**: ${pageInfo.viewportHeight || 0}px
 
-AVAILABLE ELEMENTS (numbered tags visible in screenshot):
+## RECENT ACTION HISTORY
+${formatActionHistory()}
+
+## AVAILABLE ELEMENTS (Yellow numbered tags in screenshot)
 ${elementContext}
 
-RULES:
-1. Look at the numbered yellow tags in the screenshot - these correspond to interactive elements.
-2. If you see a login screen, CAPTCHA, 2FA prompt, or anything requiring human credentials, return action "human_help".
-3. Use the numbered tags to specify which element to interact with.
-4. If the goal is accomplished, return action "done".
-5. If you need to see more content, use action "scroll" with value "down" or "up".
-6. Think step by step and explain your reasoning.
+## AVAILABLE ACTIONS
+| Action | Description | Required Fields |
+|--------|-------------|-----------------|
+| click | Click on an element | target_id |
+| type | Type text into an input/textarea | target_id, value |
+| type_and_enter | Type text AND press Enter (best for search boxes!) | target_id, value |
+| press_enter | Press Enter key (submit forms) | target_id |
+| scroll | Scroll the page | value: "up" or "down" |
+| navigate | Go to a URL in current tab | value: URL |
+| new_tab | Open URL in new tab | value: URL |
+| wait | Wait for page to update | value: milliseconds (max 5000) |
+| go_back | Go back in browser history | - |
+| refresh | Refresh the current page | - |
+| human_help | Request human assistance | message_to_user |
+| done | Task completed successfully | - |
 
-You MUST respond with valid JSON in exactly this format:
+## STRATEGY GUIDELINES
+1. **For search boxes**: Use "type_and_enter" - it types AND submits in one step. This is the BEST action for search forms on sites like Google, Amazon, YouTube, etc.
+2. **Break down complex tasks**: Think step-by-step about what needs to happen.
+3. **Verify before acting**: Look at what elements are available before choosing an action.
+4. **Handle navigation**: After clicking links, wait for the page to load before the next action.
+5. **Use direct navigation**: If you know the URL (e.g., youtube.com), use navigate instead of searching.
+6. **Error recovery**: If an action fails, try an alternative approach.
+7. **Provide clear thoughts**: Explain your reasoning so the user understands your decisions.
+
+## RESPONSE FORMAT
+Return ONLY ONE valid JSON object:
 {
-  "thought": "Your step-by-step reasoning about what you see and what to do next",
-  "action": "click" | "type" | "scroll" | "human_help" | "done",
-  "target_id": <number of the element to interact with, or null for scroll/done>,
-  "value": "<text to type, or 'up'/'down' for scroll, or null>",
-  "message_to_user": "<message explaining what you need if action is human_help, otherwise null>"
+  "thought": "Your detailed reasoning about the current state and what to do next",
+  "plan": ["Step 1 description", "Step 2 description", "..."],
+  "action": "click|type|type_and_enter|press_enter|scroll|navigate|new_tab|wait|go_back|refresh|human_help|done",
+  "target_id": <element number or null>,
+  "value": "<text/URL/direction/milliseconds or null>",
+  "message_to_user": "<explanation if human_help, otherwise null>",
+  "confidence": <1-10 how confident you are in this action>
 }`;
 
-    // Build conversation history for context (without images to save tokens)
-    const historyParts = conversationHistory.slice(-6).map(h => ({
+    // Build conversation history for context
+    const historyParts = conversationHistory.slice(-4).map(h => ({
         role: h.role,
         parts: [{ text: h.text }]
     }));
 
-    // Build current request
     const currentParts = [];
 
-    // Add screenshot if available
     if (screenshot) {
         const base64Data = screenshot.replace(/^data:image\/\w+;base64,/, '');
         currentParts.push({
@@ -234,6 +323,13 @@ You MUST respond with valid JSON in exactly this format:
 
     currentParts.push({ text: systemPrompt });
 
+    // Add error context if there was a recent error
+    if (lastError) {
+        currentParts.push({
+            text: `\n\n⚠️ PREVIOUS ERROR: ${lastError}\nPlease try a different approach.`
+        });
+    }
+
     const requestBody = {
         contents: [
             ...historyParts,
@@ -243,10 +339,10 @@ You MUST respond with valid JSON in exactly this format:
             }
         ],
         generationConfig: {
-            temperature: 0.1,
+            temperature: 0.2,
             topP: 0.95,
             topK: 40,
-            maxOutputTokens: 1024
+            maxOutputTokens: 1500
         },
         safetySettings: [
             { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
@@ -276,20 +372,23 @@ You MUST respond with valid JSON in exactly this format:
 
         const responseText = data.candidates[0].content.parts[0].text;
 
-        // Add to conversation history (text only)
+        // Update conversation history
         conversationHistory.push({
             role: 'user',
-            text: `[Screenshot captured] Goal: ${goal}`
+            text: `[Page: ${pageInfo.title}] Goal: ${goal}`
         });
         conversationHistory.push({
             role: 'model',
             text: responseText
         });
 
-        // Keep history manageable
         if (conversationHistory.length > 20) {
             conversationHistory = conversationHistory.slice(-20);
         }
+
+        // Clear error after successful response
+        lastError = null;
+        consecutiveErrors = 0;
 
         return cleanJson(responseText);
     } catch (error) {
@@ -308,13 +407,169 @@ function formatElementContext(elements) {
         return 'No interactive elements found on this page.';
     }
 
-    return elements.slice(0, 50).map(el => {
+    return elements.slice(0, 60).map(el => {
         let desc = `[${el.id}] ${el.tag}`;
-        if (el.type) desc += ` (type=${el.type})`;
-        if (el.label) desc += `: "${el.label}"`;
-        if (el.href) desc += ` -> ${el.href.substring(0, 50)}`;
+        if (el.type) desc += `(${el.type})`;
+        if (el.label) desc += `: "${el.label.substring(0, 40)}"`;
+        if (el.href) desc += ` → ${el.href.substring(0, 60)}`;
         return desc;
     }).join('\n');
+}
+
+// ==================== ACTION EXECUTOR ====================
+async function executeAction(agentResponse) {
+    const action = agentResponse.action;
+    const targetId = agentResponse.target_id;
+    const value = agentResponse.value;
+    let result = { success: false, error: 'Unknown action' };
+
+    try {
+        switch (action) {
+            case 'click':
+                if (!targetId) {
+                    result = { success: false, error: 'No target_id for click' };
+                } else {
+                    log(`Clicking element ${targetId}...`, 'action');
+                    result = await chrome.tabs.sendMessage(currentTabId, {
+                        type: 'EXECUTE_ACTION',
+                        action: { type: 'click', target_id: targetId }
+                    });
+                    if (result.success) {
+                        await waitForPageLoad(currentTabId, 5000);
+                    }
+                }
+                break;
+
+            case 'type':
+                if (!targetId || !value) {
+                    result = { success: false, error: 'Missing target_id or value for type' };
+                } else {
+                    log(`Typing "${value}" into element ${targetId}...`, 'action');
+                    result = await chrome.tabs.sendMessage(currentTabId, {
+                        type: 'EXECUTE_ACTION',
+                        action: { type: 'type', target_id: targetId, value: value }
+                    });
+                }
+                break;
+
+            case 'type_and_enter':
+                if (!targetId || !value) {
+                    result = { success: false, error: 'Missing target_id or value for type_and_enter' };
+                } else {
+                    log(`Typing "${value}" and pressing Enter on element ${targetId}...`, 'action');
+                    result = await chrome.tabs.sendMessage(currentTabId, {
+                        type: 'EXECUTE_ACTION',
+                        action: { type: 'type_and_enter', target_id: targetId, value: value }
+                    });
+                    if (result.success) {
+                        await waitForPageLoad(currentTabId, 8000);
+                    }
+                }
+                break;
+
+            case 'press_enter':
+                if (!targetId) {
+                    result = { success: false, error: 'No target_id for press_enter' };
+                } else {
+                    log(`Pressing Enter on element ${targetId}...`, 'action');
+                    result = await chrome.tabs.sendMessage(currentTabId, {
+                        type: 'EXECUTE_ACTION',
+                        action: { type: 'submit', target_id: targetId }
+                    });
+                    await waitForPageLoad(currentTabId, 5000);
+                }
+                break;
+
+            case 'scroll':
+                const direction = value || 'down';
+                log(`Scrolling ${direction}...`, 'action');
+                result = await chrome.tabs.sendMessage(currentTabId, {
+                    type: 'EXECUTE_ACTION',
+                    action: { type: 'scroll', value: direction }
+                });
+                await sleep(800);
+                break;
+
+            case 'navigate':
+                if (!value) {
+                    result = { success: false, error: 'No URL for navigate' };
+                } else {
+                    let url = value;
+                    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                        url = 'https://' + url;
+                    }
+                    log(`Navigating to ${url}...`, 'action');
+                    await chrome.tabs.update(currentTabId, { url: url });
+                    await waitForPageLoad(currentTabId, 10000);
+                    result = { success: true, message: `Navigated to ${url}` };
+                }
+                break;
+
+            case 'new_tab':
+                if (!value) {
+                    result = { success: false, error: 'No URL for new_tab' };
+                } else {
+                    let url = value;
+                    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                        url = 'https://' + url;
+                    }
+                    log(`Opening new tab: ${url}...`, 'action');
+                    const newTab = await chrome.tabs.create({ url: url, active: true });
+                    currentTabId = newTab.id;
+                    await waitForPageLoad(currentTabId, 10000);
+                    result = { success: true, message: `Opened new tab: ${url}` };
+                }
+                break;
+
+            case 'wait':
+                const waitMs = Math.min(parseInt(value) || 1000, 5000);
+                log(`Waiting ${waitMs}ms...`, 'action');
+                await sleep(waitMs);
+                result = { success: true, message: `Waited ${waitMs}ms` };
+                break;
+
+            case 'go_back':
+                log('Going back...', 'action');
+                await chrome.tabs.goBack(currentTabId);
+                await waitForPageLoad(currentTabId, 5000);
+                result = { success: true, message: 'Went back' };
+                break;
+
+            case 'refresh':
+                log('Refreshing page...', 'action');
+                await chrome.tabs.reload(currentTabId);
+                await waitForPageLoad(currentTabId, 10000);
+                result = { success: true, message: 'Page refreshed' };
+                break;
+
+            case 'human_help':
+                const helpMessage = agentResponse.message_to_user || 'Please help me with this step.';
+                log(`🆘 Human help needed: ${helpMessage}`, 'warning');
+                showHumanHelp(helpMessage);
+                isPaused = true;
+                updateUI();
+                result = { success: true, message: 'Waiting for human help' };
+                break;
+
+            case 'done':
+                log('✅ Goal accomplished!', 'action');
+                isRunning = false;
+                result = { success: true, message: 'Task completed' };
+                break;
+
+            default:
+                result = { success: false, error: `Unknown action: ${action}` };
+        }
+    } catch (error) {
+        result = { success: false, error: error.message };
+    }
+
+    // Record the action
+    const tab = await getCurrentTab();
+    result.pageUrl = tab?.url;
+    recordAction({ type: action, target_id: targetId, value: value }, result);
+
+    return result;
 }
 
 // ==================== MAIN LOOP ====================
@@ -332,10 +587,8 @@ async function runAgentLoop() {
         return;
     }
 
-    // Save API key for future sessions
     await saveApiKey(apiKey);
 
-    // Get current tab
     const tab = await getCurrentTab();
     if (!tab) {
         log('No active tab found', 'error');
@@ -344,62 +597,67 @@ async function runAgentLoop() {
 
     currentTabId = tab.id;
 
-    // Check if we can access the tab
-    if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
-        log('Cannot run on Chrome internal pages', 'error');
-        return;
+    // Handle Chrome internal pages
+    if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://') || tab.url === 'about:blank') {
+        log('On Chrome internal page, navigating to Google...', 'info');
+        await chrome.tabs.update(currentTabId, { url: 'https://www.google.com' });
+        await waitForPageLoad(currentTabId, 10000);
     }
 
     // Reset state
     isRunning = true;
     isPaused = false;
     conversationHistory = [];
+    actionHistory = [];
+    lastError = null;
+    consecutiveErrors = 0;
     updateUI();
 
-    log(`Starting agent with goal: "${goal}"`, 'info');
-    log(`Current page: ${tab.title}`, 'info');
+    log(`🚀 Starting agent with goal: "${goal}"`, 'info');
 
-    // Main loop
     let iteration = 0;
-    const maxIterations = 50; // Safety limit
+    const maxIterations = 100;
 
     while (isRunning && iteration < maxIterations) {
-        // Check if we should stop
-        if (!isRunning) {
-            log('Agent stopped by user', 'warning');
-            break;
-        }
+        if (!isRunning) break;
 
-        // Check if paused (human help needed)
         if (isPaused) {
             await sleep(500);
             continue;
         }
 
         iteration++;
-        log(`--- Iteration ${iteration} ---`, 'info');
+        log(`━━━ Step ${iteration} ━━━`, 'info');
 
         try {
             // Ensure content script is loaded
             const scriptReady = await ensureContentScript(currentTabId);
             if (!scriptReady) {
-                log('Content script not available', 'error');
-                break;
-            }
-
-            // Step 1: Tag the page
-            log('Scanning page for interactive elements...', 'info');
-            let tagResponse;
-            try {
-                tagResponse = await chrome.tabs.sendMessage(currentTabId, { type: 'TAG_PAGE' });
-            } catch (error) {
-                log(`Failed to communicate with page: ${error.message}`, 'error');
+                log('Content script not available, retrying...', 'warning');
                 await sleep(2000);
                 continue;
             }
 
-            if (!tagResponse || !tagResponse.success) {
-                log('Failed to tag page elements', 'error');
+            // Tag the page
+            log('Analyzing page...', 'info');
+            let tagResponse;
+            try {
+                tagResponse = await chrome.tabs.sendMessage(currentTabId, { type: 'TAG_PAGE' });
+            } catch (error) {
+                log(`Page communication failed: ${error.message}`, 'error');
+                lastError = error.message;
+                consecutiveErrors++;
+
+                if (consecutiveErrors >= 3) {
+                    log('Too many consecutive errors, stopping...', 'error');
+                    break;
+                }
+                await sleep(2000);
+                continue;
+            }
+
+            if (!tagResponse?.success) {
+                log('Failed to analyze page', 'error');
                 continue;
             }
 
@@ -407,135 +665,74 @@ async function runAgentLoop() {
             const pageInfo = tagResponse.pageInfo || {};
             log(`Found ${elements.length} interactive elements`, 'info');
 
-            // Step 2: Wait for DOM to stabilize
-            await sleep(1500);
+            // Wait for DOM to stabilize
+            await sleep(800);
 
-            // Step 3: Capture screenshot
-            log('Capturing screenshot...', 'info');
+            // Capture screenshot
             const screenshot = await captureScreenshot();
-            if (!screenshot) {
-                log('Failed to capture screenshot, continuing anyway...', 'warning');
-            }
 
-            // Step 4: Build element context
+            // Build context
             const elementContext = formatElementContext(elements);
 
-            // Step 5: Call Gemini
-            log('Thinking...', 'thought');
+            // Call Gemini
+            log('🤔 Thinking...', 'thought');
             let agentResponse;
             try {
                 agentResponse = await callGemini(apiKey, goal, screenshot, elementContext, pageInfo);
             } catch (error) {
                 log(`AI error: ${error.message}`, 'error');
-                // Don't crash, just continue
+                lastError = error.message;
+                consecutiveErrors++;
                 await sleep(2000);
                 continue;
             }
 
-            // Log the agent's thought
+            // Log the agent's thoughts
             if (agentResponse.thought) {
                 log(`💭 ${agentResponse.thought}`, 'thought');
             }
 
-            // Step 6: Handle the action
-            const action = agentResponse.action;
-            log(`Action: ${action}`, 'action');
+            if (agentResponse.plan && agentResponse.plan.length > 0) {
+                log(`📋 Plan: ${agentResponse.plan.slice(0, 3).join(' → ')}`, 'info');
+            }
 
-            switch (action) {
-                case 'done':
-                    log('✅ Goal accomplished!', 'action');
-                    isRunning = false;
-                    break;
+            if (agentResponse.confidence) {
+                log(`Confidence: ${agentResponse.confidence}/10`, 'info');
+            }
 
-                case 'human_help':
-                    const helpMessage = agentResponse.message_to_user || 'Please help me with this step.';
-                    log(`🆘 Human help needed: ${helpMessage}`, 'warning');
-                    showHumanHelp(helpMessage);
-                    isPaused = true;
-                    updateUI();
-                    break;
+            // Execute the action
+            log(`⚡ Action: ${agentResponse.action}`, 'action');
+            const result = await executeAction(agentResponse);
 
-                case 'click':
-                    if (agentResponse.target_id) {
-                        log(`Clicking element ${agentResponse.target_id}...`, 'action');
-                        try {
-                            const clickResult = await chrome.tabs.sendMessage(currentTabId, {
-                                type: 'EXECUTE_ACTION',
-                                action: { type: 'click', target_id: agentResponse.target_id }
-                            });
-                            if (clickResult.success) {
-                                log(`✓ ${clickResult.message}`, 'action');
-                            } else {
-                                log(`✗ Click failed: ${clickResult.error}`, 'error');
-                            }
-                        } catch (error) {
-                            log(`Click error: ${error.message}`, 'error');
-                        }
-                    } else {
-                        log('No target_id provided for click', 'error');
-                    }
-                    // Wait for page to update
-                    await sleep(2000);
-                    break;
-
-                case 'type':
-                    if (agentResponse.target_id && agentResponse.value) {
-                        log(`Typing into element ${agentResponse.target_id}...`, 'action');
-                        try {
-                            const typeResult = await chrome.tabs.sendMessage(currentTabId, {
-                                type: 'EXECUTE_ACTION',
-                                action: {
-                                    type: 'type',
-                                    target_id: agentResponse.target_id,
-                                    value: agentResponse.value
-                                }
-                            });
-                            if (typeResult.success) {
-                                log(`✓ ${typeResult.message}`, 'action');
-                            } else {
-                                log(`✗ Type failed: ${typeResult.error}`, 'error');
-                            }
-                        } catch (error) {
-                            log(`Type error: ${error.message}`, 'error');
-                        }
-                    } else {
-                        log('Missing target_id or value for type action', 'error');
-                    }
-                    await sleep(1000);
-                    break;
-
-                case 'scroll':
-                    const direction = agentResponse.value || 'down';
-                    log(`Scrolling ${direction}...`, 'action');
-                    try {
-                        await chrome.tabs.sendMessage(currentTabId, {
-                            type: 'EXECUTE_ACTION',
-                            action: { type: 'scroll', value: direction }
-                        });
-                        log(`✓ Scrolled ${direction}`, 'action');
-                    } catch (error) {
-                        log(`Scroll error: ${error.message}`, 'error');
-                    }
-                    await sleep(1000);
-                    break;
-
-                default:
-                    log(`Unknown action: ${action}`, 'error');
+            if (result.success) {
+                log(`✓ ${result.message || 'Action completed'}`, 'action');
+                consecutiveErrors = 0;
+            } else {
+                log(`✗ ${result.error}`, 'error');
+                lastError = result.error;
+                consecutiveErrors++;
             }
 
             // Clear tags after action
             try {
                 await chrome.tabs.sendMessage(currentTabId, { type: 'CLEAR_TAGS' });
-            } catch (e) {
-                // Ignore errors when clearing tags
+            } catch (e) { }
+
+            // Check for too many errors
+            if (consecutiveErrors >= 5) {
+                log('Too many consecutive errors, requesting human help...', 'warning');
+                showHumanHelp('The agent is having trouble. Please check the page and click Resume.');
+                isPaused = true;
+                updateUI();
+                consecutiveErrors = 0;
             }
 
-            // Brief pause between iterations
-            await sleep(500);
+            await sleep(300);
 
         } catch (error) {
             log(`Loop error: ${error.message}`, 'error');
             console.error('[GeminiPilot] Loop error:', error);
+            consecutiveErrors++;
             await sleep(2000);
         }
     }
@@ -549,14 +746,11 @@ async function runAgentLoop() {
     isPaused = false;
     updateUI();
 
-    // Clear any remaining tags
     try {
         if (currentTabId) {
             await chrome.tabs.sendMessage(currentTabId, { type: 'CLEAR_TAGS' });
         }
-    } catch (e) {
-        // Ignore
-    }
+    } catch (e) { }
 
     log('Agent stopped', 'info');
 }
@@ -568,6 +762,8 @@ function resumeAgent() {
     log('Resuming agent...', 'info');
     hideHumanHelp();
     isPaused = false;
+    lastError = null;
+    consecutiveErrors = 0;
     updateUI();
 }
 
@@ -579,7 +775,6 @@ function stopAgent() {
     hideHumanHelp();
     updateUI();
 
-    // Clear tags
     if (currentTabId) {
         chrome.tabs.sendMessage(currentTabId, { type: 'CLEAR_TAGS' }).catch(() => { });
     }
@@ -596,22 +791,17 @@ stopBtn.addEventListener('click', stopAgent);
 resumeBtn.addEventListener('click', resumeAgent);
 clearLogsBtn.addEventListener('click', clearLogs);
 
-// Save API key on change
 apiKeyInput.addEventListener('change', () => {
     saveApiKey(apiKeyInput.value.trim());
 });
 
 // ==================== INITIALIZATION ====================
 async function init() {
-    // Load saved API key
     await loadApiKey();
-
-    // Set initial UI state
     updateUI();
 
-    log('GeminiPilot 3 ready!', 'info');
-    log('Enter your Gemini API key and a goal, then click Start.', 'info');
+    log('🚀 GeminiPilot 3 Enhanced ready!', 'info');
+    log('Enter your API key and goal, then click Start.', 'info');
 }
 
-// Start initialization
 init();

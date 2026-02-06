@@ -241,7 +241,7 @@ function simulateClick(element) {
 /**
  * React-proof typing function
  */
-function simulateTyping(element, text) {
+function simulateTyping(element, text, keepFocus = true) {
     // Focus the element
     element.focus();
 
@@ -265,8 +265,9 @@ function simulateTyping(element, text) {
         element.value = text;
     }
 
-    // Dispatch input event (for React)
+    // Dispatch input event (for React and autocomplete)
     element.dispatchEvent(new Event('input', { bubbles: true, cancelable: true }));
+    element.dispatchEvent(new InputEvent('input', { bubbles: true, cancelable: true, data: text, inputType: 'insertText' }));
 
     // Dispatch change event
     element.dispatchEvent(new Event('change', { bubbles: true, cancelable: true }));
@@ -274,9 +275,45 @@ function simulateTyping(element, text) {
     // Dispatch keyup for good measure
     element.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
 
-    // Blur to trigger any onBlur handlers
-    element.blur();
+    // Keep focus for potential Enter key press
+    if (keepFocus) {
+        element.focus();
+    }
+}
+
+/**
+ * Simulate pressing Enter key on an element
+ */
+function simulateEnterKey(element) {
     element.focus();
+
+    const enterKeyOptions = {
+        key: 'Enter',
+        code: 'Enter',
+        keyCode: 13,
+        which: 13,
+        bubbles: true,
+        cancelable: true
+    };
+
+    // Dispatch keyboard events
+    element.dispatchEvent(new KeyboardEvent('keydown', enterKeyOptions));
+    element.dispatchEvent(new KeyboardEvent('keypress', enterKeyOptions));
+    element.dispatchEvent(new KeyboardEvent('keyup', enterKeyOptions));
+
+    // Try to submit the form if exists
+    const form = element.closest('form');
+    if (form) {
+        // Try clicking submit button first
+        const submitBtn = form.querySelector('button[type="submit"], input[type="submit"], button:not([type])') ||
+            form.querySelector('[role="button"]');
+        if (submitBtn) {
+            simulateClick(submitBtn);
+        } else {
+            // Fallback to form submit
+            form.requestSubmit ? form.requestSubmit() : form.submit();
+        }
+    }
 }
 
 /**
@@ -372,18 +409,30 @@ async function executeAction(action) {
                     return { success: false, error: `Element ${target_id} not found after retries` };
                 }
 
-                // If it's an input, try to submit its form
-                const form = element.closest('form');
-                if (form) {
-                    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                simulateEnterKey(element);
+                return { success: true, message: `Pressed Enter on element ${target_id}` };
+            }
+
+            case 'type_and_enter': {
+                const element = await findElementWithRetry(target_id);
+                if (!element) {
+                    return { success: false, error: `Element ${target_id} not found after retries` };
                 }
 
-                // Also dispatch Enter key
-                element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
-                element.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', bubbles: true }));
-                element.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
+                // Scroll element into view
+                element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                await new Promise(resolve => setTimeout(resolve, 300));
 
-                return { success: true, message: `Submitted form for element ${target_id}` };
+                // Type the text
+                simulateTyping(element, value || '', true);
+
+                // Wait a moment for any autocomplete to settle
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // Press Enter
+                simulateEnterKey(element);
+
+                return { success: true, message: `Typed and submitted: ${value}` };
             }
 
             default:
