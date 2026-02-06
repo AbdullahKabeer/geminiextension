@@ -662,7 +662,7 @@ function initVoiceRecognition() {
     }
 
     const recognition = new SpeechRecognition();
-    recognition.continuous = false;
+    recognition.continuous = true;  // Keep listening until manually stopped
     recognition.interimResults = true;
     recognition.lang = 'en-US';
     recognition.maxAlternatives = 1;
