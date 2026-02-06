@@ -47,6 +47,13 @@ const settingsModal = document.getElementById('settingsModal');
 const closeSettingsBtn = document.getElementById('closeSettingsBtn');
 const saveSettingsBtn = document.getElementById('saveSettingsBtn');
 
+// Voice Control Elements
+const voiceBtn = document.getElementById('voiceBtn');
+const voiceBanner = document.getElementById('voiceBanner');
+const voiceStatus = document.getElementById('voiceStatus');
+const voiceTranscript = document.getElementById('voiceTranscript');
+let voiceControl = null;
+
 // ==================== PERSISTENT STATS ====================
 let stats = { sessions: 0, actions: 0, successes: 0, totalTime: 0 };
 let sessionStartTime = null;
@@ -1272,7 +1279,87 @@ async function init() {
     updateUI();
 
     log('🚀 GeminiPilot 3 ready!', 'info');
-    log('⌨️ Ctrl+Enter=Start | Esc=Stop', 'info');
+    log('⌨️ Ctrl+Enter=Start | Esc=Stop | 🎤 Voice', 'info');
+
+    // Initialize Voice Control
+    initVoiceControl();
+}
+
+// ==================== VOICE CONTROL ====================
+function initVoiceControl() {
+    if (!window.VoiceControl) {
+        console.warn('VoiceControl module not loaded');
+        if (voiceBtn) voiceBtn.style.display = 'none';
+        return;
+    }
+
+    voiceControl = new VoiceControl({
+        onResult: (transcript) => {
+            // Put the transcript in the chat input and send
+            if (chatInput) {
+                chatInput.value = transcript;
+            }
+            if (voiceTranscript) {
+                voiceTranscript.textContent = transcript;
+            }
+            // Auto-send after a brief delay to show the transcript
+            setTimeout(() => {
+                handleUserMessage();
+            }, 300);
+        },
+        onInterimResult: (transcript) => {
+            // Show live transcription
+            if (voiceTranscript) {
+                voiceTranscript.textContent = transcript;
+            }
+            if (voiceStatus) {
+                voiceStatus.textContent = 'Listening...';
+            }
+        },
+        onError: (errorMessage) => {
+            log(`🎤 ${errorMessage}`, 'warning');
+            addChatMessage('system', `Voice: ${errorMessage}`, 'error');
+        },
+        onStateChange: (state) => {
+            updateVoiceUI(state);
+        }
+    });
+
+    // Setup voice button click handler
+    if (voiceBtn) {
+        voiceBtn.addEventListener('click', () => {
+            if (voiceControl) {
+                voiceControl.toggle();
+            }
+        });
+
+        // Show/hide based on support
+        if (!voiceControl.isSupported) {
+            voiceBtn.disabled = true;
+            voiceBtn.title = 'Voice not supported in this browser';
+        }
+    }
+
+    log('🎤 Voice control ready', 'info');
+}
+
+function updateVoiceUI(state) {
+    if (!voiceBtn || !voiceBanner) return;
+
+    switch (state) {
+        case 'listening':
+            voiceBtn.classList.add('listening');
+            voiceBanner.classList.add('visible');
+            if (voiceStatus) voiceStatus.textContent = 'Listening...';
+            if (voiceTranscript) voiceTranscript.textContent = '';
+            break;
+        case 'idle':
+        case 'error':
+        default:
+            voiceBtn.classList.remove('listening');
+            voiceBanner.classList.remove('visible');
+            break;
+    }
 }
 
 init();

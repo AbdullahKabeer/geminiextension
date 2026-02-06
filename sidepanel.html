@@ -923,23 +923,20 @@
 
         .chat-input {
             flex: 1;
-            /* Take remaining space */
+            min-width: 0;
             background: var(--bg-tertiary);
             border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 12px 14px;
+            border-radius: 10px;
+            padding: 10px 12px;
             color: var(--text-primary);
             font-family: inherit;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             line-height: 1.4;
             resize: none;
-            /* Auto-resize via JS */
-            height: 48px;
-            /* Fixed initial height matching button approx */
-            max-height: 120px;
+            height: 36px;
+            max-height: 100px;
             transition: border-color 0.2s ease, box-shadow 0.2s ease;
             box-sizing: border-box;
-            /* Important for padding */
         }
 
         .chat-input:focus {
@@ -949,10 +946,9 @@
         }
 
         .btn-send {
-            width: 48px;
-            /* Match input height */
-            height: 48px;
-            border-radius: 12px;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
             background: var(--accent-purple);
             color: white;
             border: none;
@@ -960,10 +956,9 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.2rem;
+            font-size: 1rem;
             transition: all 0.2s ease;
             flex-shrink: 0;
-            /* Don't shrink */
         }
 
         .btn-send:hover:not(:disabled) {
@@ -1001,6 +996,118 @@
 
         .btn-stop-small:hover {
             background: rgba(239, 68, 68, 0.2);
+        }
+
+        /* Voice Control Button */
+        .btn-voice {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .btn-voice:hover:not(:disabled) {
+            background: var(--bg-hover);
+            border-color: var(--accent-purple);
+            color: var(--text-primary);
+        }
+
+        .btn-voice.listening {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: var(--accent-red);
+            color: var(--accent-red);
+            animation: voicePulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes voicePulse {
+
+            0%,
+            100% {
+                box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+            }
+
+            50% {
+                box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+            }
+        }
+
+        .btn-voice:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Voice Listening Banner */
+        .voice-banner {
+            display: none;
+            background: linear-gradient(135deg, var(--accent-red), #dc2626);
+            color: white;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            align-items: center;
+            gap: 8px;
+            animation: slideIn 0.2s ease;
+        }
+
+        .voice-banner.visible {
+            display: flex;
+        }
+
+        .voice-wave {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+            height: 16px;
+        }
+
+        .voice-wave span {
+            width: 3px;
+            height: 100%;
+            background: white;
+            border-radius: 2px;
+            animation: waveAnim 0.8s ease-in-out infinite;
+        }
+
+        .voice-wave span:nth-child(2) {
+            animation-delay: 0.1s;
+        }
+
+        .voice-wave span:nth-child(3) {
+            animation-delay: 0.2s;
+        }
+
+        .voice-wave span:nth-child(4) {
+            animation-delay: 0.3s;
+        }
+
+        @keyframes waveAnim {
+
+            0%,
+            100% {
+                transform: scaleY(0.4);
+            }
+
+            50% {
+                transform: scaleY(1);
+            }
+        }
+
+        .voice-transcript {
+            flex: 1;
+            font-style: italic;
+            opacity: 0.9;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
     </style>
 </head>
@@ -1120,8 +1227,19 @@
 
         <!-- Chat Input Fixed at Bottom -->
         <div class="chat-input-container">
+            <!-- Voice Listening Banner -->
+            <div class="voice-banner" id="voiceBanner">
+                <div class="voice-wave">
+                    <span></span><span></span><span></span><span></span>
+                </div>
+                <span id="voiceStatus">Listening...</span>
+                <span class="voice-transcript" id="voiceTranscript"></span>
+            </div>
             <div class="chat-input-row">
                 <textarea class="chat-input" id="chatInput" placeholder="Message GeminiPilot..." rows="1"></textarea>
+                <button class="btn-voice" id="voiceBtn" title="Voice Input">
+                    🎤
+                </button>
                 <button class="btn-send" id="sendBtn" title="Send (Cmd+Enter)">
                     ➤
                 </button>
@@ -1157,6 +1275,7 @@
 
     <script src="prompts.js"></script>
     <script src="agentRouter.js"></script>
+    <script src="voiceControl.js"></script>
     <script src="sidepanel.js"></script>
 </body>
 
