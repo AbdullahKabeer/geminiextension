@@ -649,5 +649,105 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // Keep message channel open
 });
 
+// ==================== VOICE RECOGNITION IN PAGE CONTEXT ====================
+// Voice recognition works better in page context than extension context
+let voiceRecognition = null;
+let voiceIsListening = false;
+
+function initVoiceRecognition() {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+        console.warn('[GeminiPilot] Speech recognition not supported');
+        return null;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+        voiceIsListening = true;
+        console.log('[GeminiPilot] 🎤 Voice recognition started');
+        chrome.runtime.sendMessage({ type: 'VOICE_STATE', state: 'listening' });
+    };
+
+    recognition.onend = () => {
+        voiceIsListening = false;
+        console.log('[GeminiPilot] 🎤 Voice recognition ended');
+        chrome.runtime.sendMessage({ type: 'VOICE_STATE', state: 'idle' });
+    };
+
+    recognition.onresult = (event) => {
+        const result = event.results[event.results.length - 1];
+        const transcript = result[0].transcript.trim();
+
+        if (result.isFinal) {
+            console.log('[GeminiPilot] 🎤 Final:', transcript);
+            chrome.runtime.sendMessage({
+                type: 'VOICE_RESULT',
+                transcript: transcript,
+                isFinal: true
+            });
+        } else {
+            chrome.runtime.sendMessage({
+                type: 'VOICE_RESULT',
+                transcript: transcript,
+                isFinal: false
+            });
+        }
+    };
+
+    recognition.onerror = (event) => {
+        console.error('[GeminiPilot] 🎤 Error:', event.error);
+        voiceIsListening = false;
+        chrome.runtime.sendMessage({
+            type: 'VOICE_ERROR',
+            error: event.error
+        });
+    };
+
+    return recognition;
+}
+
+// Listen for voice control messages
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'START_VOICE') {
+        console.log('[GeminiPilot] Starting voice recognition from page context');
+        if (!voiceRecognition) {
+            voiceRecognition = initVoiceRecognition();
+        }
+
+        if (!voiceRecognition) {
+            sendResponse({ success: false, error: 'Speech recognition not supported' });
+            return;
+        }
+
+        if (voiceIsListening) {
+            sendResponse({ success: true, message: 'Already listening' });
+            return;
+        }
+
+        try {
+            voiceRecognition.start();
+            sendResponse({ success: true });
+        } catch (error) {
+            console.error('[GeminiPilot] Voice start error:', error);
+            sendResponse({ success: false, error: error.message });
+        }
+        return true;
+    }
+
+    if (message.type === 'STOP_VOICE') {
+        console.log('[GeminiPilot] Stopping voice recognition');
+        if (voiceRecognition && voiceIsListening) {
+            voiceRecognition.stop();
+        }
+        sendResponse({ success: true });
+        return true;
+    }
+});
+
 // Log that content script is loaded
-console.log('[GeminiPilot] Content script loaded');
+console.log('[GeminiPilot] Content script loaded with voice support 🎤');

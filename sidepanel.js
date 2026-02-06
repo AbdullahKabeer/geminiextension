@@ -1285,62 +1285,87 @@ async function init() {
     initVoiceControl();
 }
 
-// ==================== VOICE CONTROL ====================
+// ==================== VOICE CONTROL (via Content Script) ====================
+let voiceListening = false;
+
 function initVoiceControl() {
-    if (!window.VoiceControl) {
-        console.warn('VoiceControl module not loaded');
-        if (voiceBtn) voiceBtn.style.display = 'none';
-        return;
+    // Setup voice button click handler
+    if (voiceBtn) {
+        voiceBtn.addEventListener('click', async () => {
+            await toggleVoice();
+        });
     }
 
-    voiceControl = new VoiceControl({
-        onResult: (transcript) => {
-            // Put the transcript in the chat input and send
-            if (chatInput) {
-                chatInput.value = transcript;
+    // Listen for voice messages from content script (via background)
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+        if (message.type === 'VOICE_STATE') {
+            voiceListening = (message.state === 'listening');
+            updateVoiceUI(message.state);
+        } else if (message.type === 'VOICE_RESULT') {
+            if (message.isFinal) {
+                // Final result - put in chat and send
+                if (chatInput) {
+                    chatInput.value = message.transcript;
+                }
+                if (voiceTranscript) {
+                    voiceTranscript.textContent = message.transcript;
+                }
+                // Auto-send after brief delay
+                setTimeout(() => {
+                    handleUserMessage();
+                }, 300);
+            } else {
+                // Interim result - just show it
+                if (voiceTranscript) {
+                    voiceTranscript.textContent = message.transcript;
+                }
             }
-            if (voiceTranscript) {
-                voiceTranscript.textContent = transcript;
+        } else if (message.type === 'VOICE_ERROR') {
+            log(`🎤 Voice error: ${message.error}`, 'warning');
+            let errorMsg = 'Voice recognition error';
+            if (message.error === 'not-allowed') {
+                errorMsg = 'Microphone access denied. Allow mic access for this site.';
+            } else if (message.error === 'no-speech') {
+                errorMsg = 'No speech detected. Try again.';
             }
-            // Auto-send after a brief delay to show the transcript
-            setTimeout(() => {
-                handleUserMessage();
-            }, 300);
-        },
-        onInterimResult: (transcript) => {
-            // Show live transcription
-            if (voiceTranscript) {
-                voiceTranscript.textContent = transcript;
-            }
-            if (voiceStatus) {
-                voiceStatus.textContent = 'Listening...';
-            }
-        },
-        onError: (errorMessage) => {
-            log(`🎤 ${errorMessage}`, 'warning');
-            addChatMessage('system', `Voice: ${errorMessage}`, 'error');
-        },
-        onStateChange: (state) => {
-            updateVoiceUI(state);
+            addChatMessage('system', `Voice: ${errorMsg}`, 'error');
+            updateVoiceUI('idle');
         }
     });
 
-    // Setup voice button click handler
-    if (voiceBtn) {
-        voiceBtn.addEventListener('click', () => {
-            if (voiceControl) {
-                voiceControl.toggle();
-            }
-        });
+    log('🎤 Voice control ready (via page)', 'info');
+}
 
-        // Show/hide based on support
-        if (!voiceControl.isSupported) {
-            voiceBtn.disabled = true;
-            voiceBtn.title = 'Voice not supported in this browser';
-        }
+async function toggleVoice() {
+    const tab = await getCurrentTab();
+    if (!tab) {
+        log('🎤 No active tab for voice', 'warning');
+        return;
     }
 
-    log('🎤 Voice control ready', 'info');
+    // Make sure content script is loaded
+    await ensureContentScript(tab.id);
+
+    if (voiceListening) {
+        // Stop listening
+        chrome.tabs.sendMessage(tab.id, { type: 'STOP_VOICE' });
+        updateVoiceUI('idle');
+    } else {
+        // Start listening
+        updateVoiceUI('listening');
+        try {
+            const response = await chrome.tabs.sendMessage(tab.id, { type: 'START_VOICE' });
+            if (!response.success) {
+                log(`🎤 Failed: ${response.error}`, 'warning');
+                addChatMessage('system', `Voice: ${response.error}`, 'error');
+                updateVoiceUI('idle');
+            }
+        } catch (error) {
+            log(`🎤 Error: ${error.message}`, 'warning');
+            addChatMessage('system', 'Voice: Could not connect to page. Refresh and try again.', 'error');
+            updateVoiceUI('idle');
+        }
+    }
 }
 
 function updateVoiceUI(state) {
@@ -1348,6 +1373,7 @@ function updateVoiceUI(state) {
 
     switch (state) {
         case 'listening':
+            voiceListening = true;
             voiceBtn.classList.add('listening');
             voiceBanner.classList.add('visible');
             if (voiceStatus) voiceStatus.textContent = 'Listening...';
@@ -1356,6 +1382,7 @@ function updateVoiceUI(state) {
         case 'idle':
         case 'error':
         default:
+            voiceListening = false;
             voiceBtn.classList.remove('listening');
             voiceBanner.classList.remove('visible');
             break;
@@ -1363,3 +1390,4 @@ function updateVoiceUI(state) {
 }
 
 init();
+
