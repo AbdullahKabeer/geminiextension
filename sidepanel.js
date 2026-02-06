@@ -25,13 +25,23 @@ const logsDiv = document.getElementById('logs');
 const clearLogsBtn = document.getElementById('clearLogsBtn');
 const humanHelpBanner = document.getElementById('humanHelpBanner');
 const humanHelpMessage = document.getElementById('humanHelpMessage');
+const elapsedTimeEl = document.getElementById('elapsedTime');
+const sessionCountEl = document.getElementById('sessionCount');
+const actionCountEl = document.getElementById('actionCount');
+const successRateEl = document.getElementById('successRate');
+const goalHistoryEl = document.getElementById('goalHistory');
+
+// ==================== PERSISTENT STATS ====================
+let stats = { sessions: 0, actions: 0, successes: 0 };
+let sessionStartTime = null;
+let timerInterval = null;
 
 // ==================== LOGGING ====================
 function log(message, type = 'info') {
-    const time = new Date().toLocaleTimeString();
+    const time = new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const entry = document.createElement('div');
     entry.className = `log-entry ${type}`;
-    entry.innerHTML = `<span class="log-time">${time}</span>${escapeHtml(message)}`;
+    entry.innerHTML = `<span class="log-time">${time}</span><span class="log-content">${escapeHtml(message)}</span>`;
     logsDiv.appendChild(entry);
     logsDiv.scrollTop = logsDiv.scrollHeight;
     console.log(`[GeminiPilot][${type}] ${message}`);
@@ -648,6 +658,11 @@ async function runAgentLoop() {
     actionHistory = [];
     lastError = null;
     consecutiveErrors = 0;
+
+    // Start timer and increment session count
+    stats.sessions++;
+    saveStats();
+    startTimer();
     updateUI();
 
     log(`🚀 Starting agent with goal: "${goal}"`, 'info');
@@ -760,10 +775,12 @@ async function runAgentLoop() {
             if (result.success) {
                 log(`✓ ${result.message || 'Action completed'}`, 'action');
                 consecutiveErrors = 0;
+                recordActionStats(true);
             } else {
                 log(`✗ ${result.error}`, 'error');
                 lastError = result.error;
                 consecutiveErrors++;
+                recordActionStats(false);
             }
 
             // Clear tags after action
@@ -826,6 +843,7 @@ function stopAgent() {
     isRunning = false;
     isPaused = false;
     hideHumanHelp();
+    stopTimer();
     updateUI();
 
     if (currentTabId) {
@@ -890,29 +908,86 @@ async function saveGoalHistory(goal) {
     goalHistory = goalHistory.slice(0, 10);
 
     await chrome.storage.local.set({ goalHistory });
+    displayGoalChips();
 }
 
-function showGoalSuggestions() {
-    const datalist = document.getElementById('goalSuggestions');
-    if (!datalist) return;
+function displayGoalChips() {
+    if (!goalHistoryEl) return;
 
-    datalist.innerHTML = '';
-    goalHistory.forEach(goal => {
-        const option = document.createElement('option');
-        option.value = goal;
-        datalist.appendChild(option);
+    goalHistoryEl.innerHTML = '';
+    goalHistory.slice(0, 5).forEach(goal => {
+        const chip = document.createElement('div');
+        chip.className = 'goal-chip';
+        chip.textContent = goal.length > 25 ? goal.substring(0, 25) + '...' : goal;
+        chip.title = goal;
+        chip.addEventListener('click', () => {
+            goalInput.value = goal;
+            goalInput.focus();
+        });
+        goalHistoryEl.appendChild(chip);
     });
+}
+
+// ==================== STATS ====================
+async function loadStats() {
+    const result = await chrome.storage.local.get('agentStats');
+    stats = result.agentStats || { sessions: 0, actions: 0, successes: 0 };
+    updateStatsDisplay();
+}
+
+async function saveStats() {
+    await chrome.storage.local.set({ agentStats: stats });
+    updateStatsDisplay();
+}
+
+function updateStatsDisplay() {
+    if (sessionCountEl) sessionCountEl.textContent = stats.sessions;
+    if (actionCountEl) actionCountEl.textContent = stats.actions;
+    if (successRateEl) {
+        const rate = stats.actions > 0 ? Math.round((stats.successes / stats.actions) * 100) : 0;
+        successRateEl.textContent = `${rate}%`;
+    }
+}
+
+function recordActionStats(success) {
+    stats.actions++;
+    if (success) stats.successes++;
+    saveStats();
+}
+
+// ==================== TIMER ====================
+function startTimer() {
+    sessionStartTime = Date.now();
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(updateTimer, 1000);
+    updateTimer();
+}
+
+function stopTimer() {
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+}
+
+function updateTimer() {
+    if (!sessionStartTime || !elapsedTimeEl) return;
+    const elapsed = Math.floor((Date.now() - sessionStartTime) / 1000);
+    const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
+    const secs = (elapsed % 60).toString().padStart(2, '0');
+    elapsedTimeEl.textContent = `${mins}:${secs}`;
 }
 
 // ==================== INITIALIZATION ====================
 async function init() {
     await loadApiKey();
     await loadGoalHistory();
-    showGoalSuggestions();
+    await loadStats();
+    displayGoalChips();
     updateUI();
 
-    log('🚀 GeminiPilot 3 Enhanced ready!', 'info');
-    log('⌨️ Shortcuts: Ctrl+Enter=Start, Esc=Stop, Space=Resume', 'info');
+    log('🚀 GeminiPilot 3 ready!', 'info');
+    log('⌨️ Ctrl+Enter=Start | Esc=Stop | Space=Resume', 'info');
 }
 
 init();

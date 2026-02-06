@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GeminiPilot 3</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -12,176 +13,295 @@
             box-sizing: border-box;
         }
 
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a24;
+            --bg-hover: #22222e;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --text-primary: #ffffff;
+            --text-secondary: #a0a0b0;
+            --text-muted: #6b6b7b;
+            --accent-purple: #8b5cf6;
+            --accent-purple-glow: rgba(139, 92, 246, 0.3);
+            --accent-green: #10b981;
+            --accent-green-glow: rgba(16, 185, 129, 0.3);
+            --accent-red: #ef4444;
+            --accent-orange: #f59e0b;
+            --accent-blue: #3b82f6;
+        }
+
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            color: #e4e4e4;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             min-height: 100vh;
-            padding: 16px;
+            padding: 0;
+            overflow-x: hidden;
         }
 
         .container {
             display: flex;
             flex-direction: column;
-            gap: 16px;
-            max-width: 400px;
+            height: 100vh;
+            padding: 16px;
+            gap: 12px;
         }
 
+        /* Header */
         .header {
             display: flex;
             align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
             gap: 12px;
-            padding-bottom: 12px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .logo {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, var(--accent-purple), var(--accent-blue));
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
         }
 
         .header h1 {
-            font-size: 1.4rem;
+            font-size: 1.1rem;
             font-weight: 700;
-            background: linear-gradient(90deg, #00d4ff, #7c3aed);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            color: var(--text-primary);
         }
 
-        .header .badge {
-            font-size: 0.65rem;
-            background: #7c3aed;
-            padding: 2px 8px;
-            border-radius: 12px;
+        .version-badge {
+            font-size: 0.6rem;
+            background: var(--accent-purple);
+            padding: 3px 8px;
+            border-radius: 20px;
             color: white;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        /* Stats bar */
+        .stats-bar {
+            display: flex;
+            gap: 8px;
+        }
+
+        .stat-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 14px;
+            flex: 1;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: var(--accent-purple);
+        }
+
+        .stat-label {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 2px;
+        }
+
+        /* Form sections */
+        .form-section {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
         }
 
         .form-group {
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            gap: 8px;
+        }
+
+        .form-group+.form-group {
+            margin-top: 12px;
         }
 
         label {
-            font-size: 0.85rem;
-            color: #a0a0a0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
             font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .label-hint {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-transform: none;
+            letter-spacing: normal;
         }
 
         input[type="password"],
+        input[type="text"],
         textarea {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
-            padding: 12px;
-            color: #fff;
+            padding: 12px 14px;
+            color: var(--text-primary);
             font-size: 0.9rem;
-            transition: border-color 0.2s, box-shadow 0.2s;
+            font-family: inherit;
+            transition: all 0.2s ease;
         }
 
-        input[type="password"]:focus,
+        input:focus,
         textarea:focus {
             outline: none;
-            border-color: #7c3aed;
-            box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.2);
+            border-color: var(--accent-purple);
+            box-shadow: 0 0 0 3px var(--accent-purple-glow);
         }
 
         textarea {
-            resize: vertical;
-            min-height: 80px;
+            resize: none;
+            min-height: 70px;
         }
 
+        /* Goal history dropdown */
+        .goal-history {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .goal-chip {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 6px 12px;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .goal-chip:hover {
+            background: var(--bg-hover);
+            border-color: var(--accent-purple);
+            color: var(--text-primary);
+        }
+
+        /* Controls */
         .controls {
             display: flex;
             gap: 8px;
-            flex-wrap: wrap;
         }
 
         button {
             flex: 1;
-            min-width: 80px;
-            padding: 12px 16px;
+            padding: 14px 20px;
             border: none;
-            border-radius: 8px;
-            font-size: 0.9rem;
+            border-radius: 10px;
+            font-size: 0.85rem;
             font-weight: 600;
+            font-family: inherit;
             cursor: pointer;
-            transition: transform 0.1s, box-shadow 0.2s;
-        }
-
-        button:hover {
-            transform: translateY(-1px);
-        }
-
-        button:active {
-            transform: translateY(0);
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
         }
 
         button:disabled {
-            opacity: 0.5;
+            opacity: 0.4;
             cursor: not-allowed;
-            transform: none;
+            transform: none !important;
         }
 
         .btn-start {
-            background: linear-gradient(135deg, #10b981, #059669);
+            background: linear-gradient(135deg, var(--accent-green), #059669);
             color: white;
-            box-shadow: 0 4px 14px rgba(16, 185, 129, 0.3);
+            box-shadow: 0 4px 20px var(--accent-green-glow);
         }
 
         .btn-start:hover:not(:disabled) {
-            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 25px var(--accent-green-glow);
         }
 
         .btn-stop {
-            background: linear-gradient(135deg, #ef4444, #dc2626);
+            background: linear-gradient(135deg, var(--accent-red), #dc2626);
             color: white;
-            box-shadow: 0 4px 14px rgba(239, 68, 68, 0.3);
         }
 
         .btn-stop:hover:not(:disabled) {
-            box-shadow: 0 6px 20px rgba(239, 68, 68, 0.4);
+            transform: translateY(-2px);
         }
 
         .btn-resume {
-            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            background: linear-gradient(135deg, var(--accent-blue), #2563eb);
             color: white;
-            box-shadow: 0 4px 14px rgba(59, 130, 246, 0.3);
             display: none;
         }
 
         .btn-resume.visible {
-            display: block;
+            display: flex;
         }
 
-        .btn-resume:hover:not(:disabled) {
-            box-shadow: 0 6px 20px rgba(59, 130, 246, 0.4);
-        }
-
+        /* Status bar */
         .status-bar {
             display: flex;
             align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            background: rgba(255, 255, 255, 0.03);
-            border-radius: 8px;
-            font-size: 0.8rem;
+            gap: 10px;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
         }
 
         .status-dot {
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
-            background: #6b7280;
+            background: var(--text-muted);
+            transition: all 0.3s ease;
         }
 
         .status-dot.running {
-            background: #10b981;
+            background: var(--accent-green);
+            box-shadow: 0 0 10px var(--accent-green);
             animation: pulse 1.5s infinite;
         }
 
         .status-dot.paused {
-            background: #f59e0b;
+            background: var(--accent-orange);
+            box-shadow: 0 0 10px var(--accent-orange);
         }
 
         .status-dot.error {
-            background: #ef4444;
+            background: var(--accent-red);
+            box-shadow: 0 0 10px var(--accent-red);
         }
 
         @keyframes pulse {
@@ -189,160 +309,292 @@
             0%,
             100% {
                 opacity: 1;
+                transform: scale(1);
             }
 
             50% {
-                opacity: 0.5;
+                opacity: 0.6;
+                transform: scale(0.9);
             }
         }
 
+        .status-text {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            flex: 1;
+        }
+
+        .status-time {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* Human help banner */
+        .human-help-banner {
+            display: none;
+            background: linear-gradient(135deg, var(--accent-orange), #d97706);
+            color: white;
+            padding: 14px 16px;
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .human-help-banner.visible {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .human-help-banner p {
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        /* Logs container */
         .logs-container {
             flex: 1;
             display: flex;
             flex-direction: column;
-            gap: 6px;
+            min-height: 0;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow: hidden;
         }
 
         .logs-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-tertiary);
+        }
+
+        .logs-header-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .logs-header button {
             flex: none;
-            padding: 4px 12px;
-            font-size: 0.75rem;
-            background: rgba(255, 255, 255, 0.1);
-            color: #a0a0a0;
+            padding: 6px 14px;
+            font-size: 0.7rem;
+            background: var(--bg-hover);
+            color: var(--text-secondary);
+            border-radius: 6px;
+        }
+
+        .logs-header button:hover {
+            background: var(--border-color);
+            color: var(--text-primary);
         }
 
         .logs {
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 12px;
-            height: 300px;
+            flex: 1;
             overflow-y: auto;
-            font-family: 'Monaco', 'Consolas', monospace;
-            font-size: 0.8rem;
-            line-height: 1.5;
+            padding: 12px 16px;
+            font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+            font-size: 0.75rem;
+            line-height: 1.6;
         }
 
         .log-entry {
-            padding: 6px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
         }
 
         .log-entry:last-child {
             border-bottom: none;
         }
 
-        .log-entry.thought {
-            color: #a78bfa;
-        }
-
-        .log-entry.action {
-            color: #34d399;
-        }
-
-        .log-entry.error {
-            color: #f87171;
-        }
-
-        .log-entry.info {
-            color: #60a5fa;
-        }
-
-        .log-entry.warning {
-            color: #fbbf24;
-        }
-
         .log-time {
-            color: #6b7280;
-            font-size: 0.7rem;
-            margin-right: 8px;
+            color: var(--text-muted);
+            font-size: 0.65rem;
+            min-width: 60px;
+            font-variant-numeric: tabular-nums;
         }
 
-        .human-help-banner {
-            display: none;
-            background: linear-gradient(135deg, #f59e0b, #d97706);
-            color: white;
-            padding: 12px;
-            border-radius: 8px;
-            text-align: center;
+        .log-content {
+            flex: 1;
+            word-break: break-word;
         }
 
-        .human-help-banner.visible {
-            display: block;
+        .log-entry.thought .log-content {
+            color: #c4b5fd;
         }
 
-        .human-help-banner p {
-            font-size: 0.85rem;
-            margin-bottom: 8px;
+        .log-entry.action .log-content {
+            color: #6ee7b7;
         }
 
-        /* Scrollbar styling */
+        .log-entry.error .log-content {
+            color: #fca5a5;
+        }
+
+        .log-entry.info .log-content {
+            color: #93c5fd;
+        }
+
+        .log-entry.warning .log-content {
+            color: #fcd34d;
+        }
+
+        /* Scrollbar */
         .logs::-webkit-scrollbar {
             width: 6px;
         }
 
         .logs::-webkit-scrollbar-track {
-            background: rgba(255, 255, 255, 0.05);
-            border-radius: 3px;
+            background: transparent;
         }
 
         .logs::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
+            background: var(--border-color);
             border-radius: 3px;
         }
 
         .logs::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.3);
+            background: var(--text-muted);
+        }
+
+        /* Footer */
+        .footer {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            padding: 8px 0;
+        }
+
+        .footer-link {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.2s ease;
+        }
+
+        .footer-link:hover {
+            color: var(--accent-purple);
+        }
+
+        /* Responsive */
+        @media (max-width: 380px) {
+            .stats-bar {
+                flex-wrap: wrap;
+            }
+
+            .stat-item {
+                min-width: calc(50% - 4px);
+            }
         }
     </style>
 </head>
 
 <body>
     <div class="container">
+        <!-- Header -->
         <div class="header">
-            <h1>🚀 GeminiPilot 3</h1>
-            <span class="badge">AI Agent</span>
+            <div class="header-left">
+                <div class="logo">🚀</div>
+                <div>
+                    <h1>GeminiPilot</h1>
+                </div>
+            </div>
+            <span class="version-badge">v3.0</span>
         </div>
 
-        <div class="form-group">
-            <label for="apiKey">Gemini API Key</label>
-            <input type="password" id="apiKey" placeholder="Enter your Gemini API key...">
+        <!-- Stats -->
+        <div class="stats-bar">
+            <div class="stat-item">
+                <div class="stat-value" id="sessionCount">0</div>
+                <div class="stat-label">Sessions</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="actionCount">0</div>
+                <div class="stat-label">Actions</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-value" id="successRate">--%</div>
+                <div class="stat-label">Success</div>
+            </div>
         </div>
 
-        <div class="form-group">
-            <label for="goal">Goal <span style="font-size: 0.7rem; color: #6b7280;">(Ctrl+Enter to start)</span></label>
-            <textarea id="goal" list="goalSuggestions"
-                placeholder="What should the agent do? e.g., 'Search for the latest news about AI'"></textarea>
-            <datalist id="goalSuggestions"></datalist>
+        <!-- Form -->
+        <div class="form-section">
+            <div class="form-group">
+                <label for="apiKey">
+                    API Key
+                    <span class="label-hint">Gemini 2.0 Flash</span>
+                </label>
+                <input type="password" id="apiKey" placeholder="Enter your Gemini API key...">
+            </div>
+
+            <div class="form-group">
+                <label for="goal">
+                    Goal
+                    <span class="label-hint">⌘+Enter to start</span>
+                </label>
+                <textarea id="goal"
+                    placeholder="What should I do? e.g., &quot;Search Amazon for wireless headphones&quot;"></textarea>
+                <div class="goal-history" id="goalHistory"></div>
+            </div>
         </div>
 
+        <!-- Controls -->
         <div class="controls">
-            <button class="btn-start" id="startBtn">▶ Start</button>
-            <button class="btn-stop" id="stopBtn" disabled>◼ Stop</button>
-            <button class="btn-resume" id="resumeBtn">↻ Resume</button>
+            <button class="btn-start" id="startBtn">
+                <span>▶</span> Start
+            </button>
+            <button class="btn-stop" id="stopBtn" disabled>
+                <span>◼</span> Stop
+            </button>
+            <button class="btn-resume" id="resumeBtn">
+                <span>↻</span> Resume
+            </button>
         </div>
 
+        <!-- Human Help Banner -->
         <div class="human-help-banner" id="humanHelpBanner">
             <p id="humanHelpMessage">The agent needs your help!</p>
         </div>
 
+        <!-- Status -->
         <div class="status-bar">
             <div class="status-dot" id="statusDot"></div>
-            <span id="statusText">Ready</span>
+            <span class="status-text" id="statusText">Ready</span>
+            <span class="status-time" id="elapsedTime">00:00</span>
         </div>
 
+        <!-- Logs -->
         <div class="logs-container">
             <div class="logs-header">
-                <label>Agent Logs</label>
+                <span class="logs-header-title">Agent Logs</span>
                 <button id="clearLogsBtn">Clear</button>
             </div>
             <div class="logs" id="logs"></div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <span class="footer-link">Powered by Gemini 2.0 Flash</span>
         </div>
     </div>
 
