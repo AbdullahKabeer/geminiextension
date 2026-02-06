@@ -209,7 +209,7 @@ async function captureScreenshot() {
     try {
         const dataUrl = await chrome.tabs.captureVisibleTab(null, {
             format: 'jpeg',
-            quality: 85
+            quality: 95  // High quality for better text recognition
         });
         return dataUrl;
     } catch (error) {
@@ -249,59 +249,81 @@ function formatActionHistory() {
 async function callGemini(apiKey, goal, screenshot, elementContext, pageInfo) {
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
-    const systemPrompt = `You are GeminiPilot, an advanced browser automation agent. You help users accomplish complex tasks by intelligently navigating and interacting with web pages.
+    // Use the new prompt system if available
+    let systemPrompt;
+    if (window.GeminiPrompts && window.AgentRouter) {
+        const taskType = window.AgentRouter.detectTaskType(goal);
+        systemPrompt = window.GeminiPrompts.buildSystemPrompt(
+            goal,
+            pageInfo,
+            elementContext,
+            formatActionHistory(),
+            lastError,
+            taskType
+        );
+        log(`📋 Task type detected: ${taskType}`, 'info');
+    } else {
+        // Fallback to enhanced built-in prompt
+        systemPrompt = `You are GeminiPilot, an advanced browser automation agent with deep reasoning capabilities.
+
+## THINKING METHODOLOGY
+Before EVERY action, you MUST think through:
+1. **OBSERVE**: What do I see on this page? What elements are available?
+2. **ORIENT**: Where am I in the overall task? What's been done?
+3. **DECIDE**: What's the best next action? Why this over alternatives?
+4. **ACT**: Execute precisely with correct parameters
 
 ## USER'S GOAL
-${goal}
+"${goal}"
 
-## CURRENT STATE
-- **Page**: ${pageInfo.title || 'Unknown'}
+## CURRENT PAGE STATE
+- **Title**: ${pageInfo.title || 'Unknown'}
 - **URL**: ${pageInfo.url || 'Unknown'}
 - **Scroll**: ${pageInfo.scrollY || 0}px / ${pageInfo.scrollHeight || 0}px
 - **Viewport**: ${pageInfo.viewportHeight || 0}px
 
-## RECENT ACTION HISTORY
+## ACTION HISTORY
 ${formatActionHistory()}
 
-## AVAILABLE ELEMENTS (Yellow numbered tags in screenshot)
+## AVAILABLE ELEMENTS
 ${elementContext}
 
 ## AVAILABLE ACTIONS
-| Action | Description | Required Fields |
-|--------|-------------|-----------------|
-| click | Click on an element | target_id |
-| type | Type text into an input/textarea | target_id, value |
-| type_and_enter | Type text AND press Enter (best for search boxes!) | target_id, value |
-| press_enter | Press Enter key (submit forms) | target_id |
-| scroll | Scroll the page | value: "up" or "down" |
-| navigate | Go to a URL in current tab | value: URL |
-| new_tab | Open URL in new tab | value: URL |
-| wait | Wait for page to update | value: milliseconds (max 5000) |
-| go_back | Go back in browser history | - |
-| refresh | Refresh the current page | - |
-| human_help | Request human assistance | message_to_user |
-| done | Task completed successfully | - |
+| Action | Description | Fields |
+|--------|-------------|--------|
+| click | Click element | target_id |
+| type | Enter text (no submit) | target_id, value |
+| type_and_enter | Type + submit (BEST for search!) | target_id, value |
+| press_enter | Submit form | target_id |
+| scroll | See more content | value: "up"/"down" |
+| navigate | Go to URL directly | value: URL |
+| new_tab | Open in new tab | value: URL |
+| wait | Pause for updates | value: ms |
+| go_back | Browser back | - |
+| refresh | Reload page | - |
+| extract | Read text | target_id |
+| human_help | Need human | message_to_user |
+| done | Task complete | - |
 
-## STRATEGY GUIDELINES
-1. **For search boxes**: Use "type_and_enter" - it types AND submits in one step. This is the BEST action for search forms on sites like Google, Amazon, YouTube, etc.
-2. **Break down complex tasks**: Think step-by-step about what needs to happen.
-3. **Verify before acting**: Look at what elements are available before choosing an action.
-4. **Handle navigation**: After clicking links, wait for the page to load before the next action.
-5. **Use direct navigation**: If you know the URL (e.g., youtube.com), use navigate instead of searching.
-6. **Error recovery**: If an action fails, try an alternative approach.
-7. **Provide clear thoughts**: Explain your reasoning so the user understands your decisions.
+## CRITICAL RULES
+1. Use type_and_enter for ALL search boxes (Google, Amazon, YouTube, etc.)
+2. Navigate directly to known URLs instead of searching for them
+3. Request human_help for logins, CAPTCHAs, 2FA
+4. Only use "done" when goal is FULLY accomplished
+5. Think deeply before each action
 
 ## RESPONSE FORMAT
-Return ONLY ONE valid JSON object:
 {
-  "thought": "Your detailed reasoning about the current state and what to do next",
-  "plan": ["Step 1 description", "Step 2 description", "..."],
-  "action": "click|type|type_and_enter|press_enter|scroll|navigate|new_tab|wait|go_back|refresh|human_help|done",
-  "target_id": <element number or null>,
-  "value": "<text/URL/direction/milliseconds or null>",
-  "message_to_user": "<explanation if human_help, otherwise null>",
-  "confidence": <1-10 how confident you are in this action>
+  "observation": "What I see on this page (specific elements, state)",
+  "thought": "My reasoning: what to do and WHY (be detailed)",
+  "plan": ["Next step", "Following step", "..."],
+  "action": "action_name",
+  "target_id": <number or null>,
+  "value": "<text/URL or null>",
+  "message_to_user": "<for human_help only>",
+  "confidence": <1-10>
 }`;
+    }
 
     // Build conversation history for context
     const historyParts = conversationHistory.slice(-4).map(h => ({
@@ -557,6 +579,21 @@ async function executeAction(agentResponse) {
                 result = { success: true, message: 'Task completed' };
                 break;
 
+            case 'extract':
+                if (!targetId) {
+                    result = { success: false, error: 'No target_id for extract' };
+                } else {
+                    log(`Extracting data from element ${targetId}...`, 'action');
+                    result = await chrome.tabs.sendMessage(currentTabId, {
+                        type: 'EXECUTE_ACTION',
+                        action: { type: 'extract', target_id: targetId }
+                    });
+                    if (result.success && result.data) {
+                        log(`📋 Extracted: "${result.data.text.substring(0, 100)}..."`, 'info');
+                    }
+                }
+                break;
+
             default:
                 result = { success: false, error: `Unknown action: ${action}` };
         }
@@ -687,7 +724,11 @@ async function runAgentLoop() {
                 continue;
             }
 
-            // Log the agent's thoughts
+            // Log the agent's observation and thoughts
+            if (agentResponse.observation) {
+                log(`👁️ ${agentResponse.observation.substring(0, 150)}...`, 'info');
+            }
+
             if (agentResponse.thought) {
                 log(`💭 ${agentResponse.thought}`, 'thought');
             }
@@ -697,11 +738,23 @@ async function runAgentLoop() {
             }
 
             if (agentResponse.confidence) {
-                log(`Confidence: ${agentResponse.confidence}/10`, 'info');
+                const confidenceEmoji = agentResponse.confidence >= 7 ? '🟢' : agentResponse.confidence >= 4 ? '🟡' : '🔴';
+                log(`${confidenceEmoji} Confidence: ${agentResponse.confidence}/10`, 'info');
+            }
+
+            // Validate action before execution
+            if (window.AgentRouter) {
+                const validation = window.AgentRouter.validateAction(agentResponse, elements);
+                if (!validation.isValid) {
+                    log(`⚠️ Action validation failed: ${validation.errors.join(', ')}`, 'warning');
+                    lastError = validation.errors.join(', ');
+                    consecutiveErrors++;
+                    continue;
+                }
             }
 
             // Execute the action
-            log(`⚡ Action: ${agentResponse.action}`, 'action');
+            log(`⚡ Action: ${agentResponse.action}${agentResponse.target_id ? ` → Element ${agentResponse.target_id}` : ''}`, 'action');
             const result = await executeAction(agentResponse);
 
             if (result.success) {
@@ -783,6 +836,7 @@ function stopAgent() {
 // ==================== EVENT LISTENERS ====================
 startBtn.addEventListener('click', () => {
     if (!isRunning) {
+        saveGoalHistory(goalInput.value.trim());
         runAgentLoop();
     }
 });
@@ -795,13 +849,70 @@ apiKeyInput.addEventListener('change', () => {
     saveApiKey(apiKeyInput.value.trim());
 });
 
+// ==================== KEYBOARD SHORTCUTS ====================
+document.addEventListener('keydown', (e) => {
+    // Ctrl+Enter or Cmd+Enter to Start
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (!isRunning) {
+            saveGoalHistory(goalInput.value.trim());
+            runAgentLoop();
+        }
+    }
+    // Escape to Stop
+    if (e.key === 'Escape' && isRunning) {
+        e.preventDefault();
+        stopAgent();
+    }
+    // Space to Resume (only when paused and not focused on input)
+    if (e.key === ' ' && isPaused && document.activeElement !== goalInput && document.activeElement !== apiKeyInput) {
+        e.preventDefault();
+        resumeAgent();
+    }
+});
+
+// ==================== GOAL HISTORY ====================
+let goalHistory = [];
+
+async function loadGoalHistory() {
+    const result = await chrome.storage.local.get('goalHistory');
+    goalHistory = result.goalHistory || [];
+}
+
+async function saveGoalHistory(goal) {
+    if (!goal || goal.length < 3) return;
+
+    // Remove duplicates and add to front
+    goalHistory = goalHistory.filter(g => g !== goal);
+    goalHistory.unshift(goal);
+
+    // Keep only last 10
+    goalHistory = goalHistory.slice(0, 10);
+
+    await chrome.storage.local.set({ goalHistory });
+}
+
+function showGoalSuggestions() {
+    const datalist = document.getElementById('goalSuggestions');
+    if (!datalist) return;
+
+    datalist.innerHTML = '';
+    goalHistory.forEach(goal => {
+        const option = document.createElement('option');
+        option.value = goal;
+        datalist.appendChild(option);
+    });
+}
+
 // ==================== INITIALIZATION ====================
 async function init() {
     await loadApiKey();
+    await loadGoalHistory();
+    showGoalSuggestions();
     updateUI();
 
     log('🚀 GeminiPilot 3 Enhanced ready!', 'info');
-    log('Enter your API key and goal, then click Start.', 'info');
+    log('⌨️ Shortcuts: Ctrl+Enter=Start, Esc=Stop, Space=Resume', 'info');
 }
 
 init();

@@ -317,6 +317,83 @@ function simulateEnterKey(element) {
 }
 
 /**
+ * Highlight an element with a pulsing border before action
+ */
+function highlightElement(element, duration = 800) {
+    return new Promise((resolve) => {
+        if (!element) {
+            resolve();
+            return;
+        }
+
+        // Store original styles
+        const originalOutline = element.style.outline;
+        const originalOutlineOffset = element.style.outlineOffset;
+        const originalTransition = element.style.transition;
+
+        // Create highlight animation
+        element.style.transition = 'outline 0.15s ease-in-out';
+        element.style.outline = '3px solid #ff0000';
+        element.style.outlineOffset = '2px';
+
+        // Pulse effect
+        let pulseCount = 0;
+        const pulseInterval = setInterval(() => {
+            pulseCount++;
+            if (pulseCount % 2 === 0) {
+                element.style.outline = '3px solid #ff0000';
+            } else {
+                element.style.outline = '3px solid #ffff00';
+            }
+        }, 150);
+
+        // Restore original styles after duration
+        setTimeout(() => {
+            clearInterval(pulseInterval);
+            element.style.outline = originalOutline;
+            element.style.outlineOffset = originalOutlineOffset;
+            element.style.transition = originalTransition;
+            resolve();
+        }, duration);
+    });
+}
+
+/**
+ * Wait for significant DOM changes
+ */
+function waitForPageChange(timeout = 5000, minChanges = 5) {
+    return new Promise((resolve) => {
+        let changeCount = 0;
+        let resolved = false;
+
+        const observer = new MutationObserver((mutations) => {
+            changeCount += mutations.length;
+            if (changeCount >= minChanges && !resolved) {
+                resolved = true;
+                observer.disconnect();
+                resolve({ changed: true, mutations: changeCount });
+            }
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            characterData: true
+        });
+
+        // Timeout fallback
+        setTimeout(() => {
+            if (!resolved) {
+                resolved = true;
+                observer.disconnect();
+                resolve({ changed: changeCount > 0, mutations: changeCount });
+            }
+        }, timeout);
+    });
+}
+
+/**
  * Find element by ID with retry logic
  */
 async function findElementWithRetry(id, maxRetries = 3, delay = 100) {
@@ -363,6 +440,9 @@ async function executeAction(action) {
                 element.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 await new Promise(resolve => setTimeout(resolve, 300));
 
+                // Highlight before clicking
+                await highlightElement(element, 600);
+
                 simulateClick(element);
                 return { success: true, message: `Clicked element ${target_id}` };
             }
@@ -376,6 +456,9 @@ async function executeAction(action) {
                 // Scroll element into view if needed
                 element.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 await new Promise(resolve => setTimeout(resolve, 300));
+
+                // Highlight before typing
+                await highlightElement(element, 400);
 
                 simulateTyping(element, value || '');
                 return { success: true, message: `Typed into element ${target_id}` };
@@ -423,6 +506,9 @@ async function executeAction(action) {
                 element.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 await new Promise(resolve => setTimeout(resolve, 300));
 
+                // Highlight before typing
+                await highlightElement(element, 400);
+
                 // Type the text
                 simulateTyping(element, value || '', true);
 
@@ -433,6 +519,31 @@ async function executeAction(action) {
                 simulateEnterKey(element);
 
                 return { success: true, message: `Typed and submitted: ${value}` };
+            }
+
+            case 'extract': {
+                const element = await findElementWithRetry(target_id);
+                if (!element) {
+                    return { success: false, error: `Element ${target_id} not found after retries` };
+                }
+
+                // Highlight the element being extracted from
+                await highlightElement(element, 400);
+
+                // Extract text content
+                const text = element.innerText || element.textContent || '';
+                const value_attr = element.value || '';
+                const href = element.href || '';
+
+                return {
+                    success: true,
+                    message: `Extracted from element ${target_id}`,
+                    data: {
+                        text: text.trim().substring(0, 1000),
+                        value: value_attr,
+                        href: href
+                    }
+                };
             }
 
             default:
@@ -499,6 +610,27 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'PING': {
             sendResponse({ success: true, message: 'Content script is alive' });
             break;
+        }
+
+        case 'HIGHLIGHT_ELEMENT': {
+            (async () => {
+                const element = await findElementWithRetry(message.target_id);
+                if (element) {
+                    await highlightElement(element, message.duration || 800);
+                    sendResponse({ success: true });
+                } else {
+                    sendResponse({ success: false, error: 'Element not found' });
+                }
+            })();
+            return true;
+        }
+
+        case 'WAIT_FOR_CHANGE': {
+            (async () => {
+                const result = await waitForPageChange(message.timeout || 5000);
+                sendResponse({ success: true, ...result });
+            })();
+            return true;
         }
 
         default:
