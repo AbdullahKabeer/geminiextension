@@ -44,6 +44,10 @@ const templateBtns = document.querySelectorAll('.template-btn');
 const logsContainer = document.getElementById('logsContainer');
 const logsHeader = document.getElementById('logsHeader');
 const screenshotPlaceholder = document.getElementById('screenshotPlaceholder');
+const settingsBtn = document.getElementById('settingsBtn');
+const settingsModal = document.getElementById('settingsModal');
+const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+const saveSettingsBtn = document.getElementById('saveSettingsBtn');
 
 // ==================== PERSISTENT STATS ====================
 let stats = { sessions: 0, actions: 0, successes: 0, totalTime: 0 };
@@ -1150,6 +1154,31 @@ function toggleScreenshotPreview() {
     }
 }
 
+// ==================== SETTINGS MODAL ====================
+function toggleSettings() {
+    if (!settingsModal) return;
+    settingsModal.classList.toggle('visible');
+    if (settingsModal.classList.contains('visible')) {
+        // Populate key when opening
+        chrome.storage.local.get(['gemini_api_key'], (result) => {
+            if (result.gemini_api_key && apiKeyInput) {
+                apiKeyInput.value = result.gemini_api_key;
+            }
+        });
+    }
+}
+
+async function saveSettings() {
+    const key = apiKeyInput.value.trim();
+    if (key) {
+        await saveApiKey(key);
+        log('Settings saved', 'info');
+        toggleSettings();
+    } else {
+        log('Please enter a valid API key', 'warning');
+    }
+}
+
 // ==================== LOGS TOGGLE ====================
 function toggleLogs() {
     if (!logsContainer) return;
@@ -1230,6 +1259,15 @@ async function init() {
     if (logsHeader) {
         logsHeader.addEventListener('click', toggleLogs);
         logsHeader.style.cursor = 'pointer';
+    }
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', toggleSettings);
+    }
+    if (closeSettingsBtn) {
+        closeSettingsBtn.addEventListener('click', toggleSettings);
+    }
+    if (saveSettingsBtn) {
+        saveSettingsBtn.addEventListener('click', saveSettings);
     }
 
     updateUI();

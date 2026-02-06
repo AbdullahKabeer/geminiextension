@@ -749,6 +749,94 @@
         .glass-card {
             animation: fadeIn 0.3s ease;
         }
+
+        /* Settings Modal */
+        .settings-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+            z-index: 100;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .settings-modal.visible {
+            display: flex;
+            opacity: 1;
+        }
+
+        .settings-content {
+            background: var(--bg-secondary);
+            width: 90%;
+            max-width: 320px;
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            padding: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            transform: scale(0.95);
+            transition: transform 0.3s ease;
+        }
+
+        .settings-modal.visible .settings-content {
+            transform: scale(1);
+        }
+
+        .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .settings-title {
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .close-settings {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 4px;
+        }
+
+        .close-settings:hover {
+            color: var(--text-primary);
+        }
+
+        /* Scrollable Main Content */
+        .main-content {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding-bottom: 1px;
+            /* Prevent scrollbar overlapping */
+        }
+
+        .main-content::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        .main-content::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .main-content::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
     </style>
 </head>
 
@@ -774,125 +862,147 @@
             <div class="progress-fill" id="progressFill"></div>
         </div>
 
-        <!-- Stats -->
-        <div class="stats-grid glass-card">
-            <div class="stat-card">
-                <div class="stat-value" id="sessionCount">0</div>
-                <div class="stat-label">Sessions</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="actionCount">0</div>
-                <div class="stat-label">Actions</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="successRate">--%</div>
-                <div class="stat-label">Success</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="avgTime">--</div>
-                <div class="stat-label">Avg Time</div>
-            </div>
-        </div>
-
-        <!-- Quick templates -->
-        <div class="templates-section glass-card">
-            <div class="section-header">
-                <span class="section-title">Quick Start</span>
-            </div>
-            <div class="templates-grid">
-                <button class="template-btn" data-template="Search Google for ">
-                    <div class="template-icon">🔍</div>
-                    <div class="template-label">Google Search</div>
-                </button>
-                <button class="template-btn" data-template="Find on Amazon: ">
-                    <div class="template-icon">🛒</div>
-                    <div class="template-label">Shop Amazon</div>
-                </button>
-                <button class="template-btn" data-template="Watch on YouTube: ">
-                    <div class="template-icon">▶️</div>
-                    <div class="template-label">YouTube Video</div>
-                </button>
-                <button class="template-btn" data-template="Navigate to ">
-                    <div class="template-icon">🌐</div>
-                    <div class="template-label">Go to Website</div>
-                </button>
-            </div>
-        </div>
-
-        <!-- Form -->
-        <div class="form-section glass-card">
-            <div class="form-group">
-                <label for="apiKey">
-                    API Key
-                    <span class="label-hint">🔐 Secured</span>
-                </label>
-                <input type="password" id="apiKey" placeholder="Enter your Gemini API key...">
-            </div>
-
-            <div class="form-group">
-                <label for="goal">
-                    Goal
-                    <span class="label-hint">⌘+Enter</span>
-                </label>
-                <textarea id="goal" placeholder="What should I do? Be specific!"></textarea>
-                <div class="goal-history" id="goalHistory"></div>
-            </div>
-        </div>
-
-        <!-- Controls -->
-        <div class="controls">
-            <button class="btn-start" id="startBtn">
-                <span>▶</span> Start Agent
-            </button>
-            <button class="btn-stop" id="stopBtn" disabled>
-                <span>◼</span> Stop
-            </button>
-            <button class="btn-resume" id="resumeBtn">
-                <span>↻</span> Resume
-            </button>
-        </div>
-
-        <!-- Human Help Banner -->
-        <div class="human-help-banner" id="humanHelpBanner">
-            <p id="humanHelpMessage">The agent needs your help!</p>
-        </div>
-
-        <!-- Status -->
-        <div class="status-bar">
-            <div class="status-indicator">
-                <div class="status-dot" id="statusDot"></div>
-                <span class="status-text" id="statusText">Ready to go</span>
-            </div>
-            <div class="status-right">
-                <span class="status-time" id="elapsedTime">00:00</span>
-            </div>
-        </div>
-
-        <!-- Screenshot Preview -->
-        <div class="screenshot-preview" id="screenshotPreview">
-            <div class="screenshot-label">Current View</div>
-            <div class="screenshot-placeholder" id="screenshotPlaceholder">
-                <div class="screenshot-placeholder-icon">📷</div>
-                <div>No screenshot yet</div>
-                <div style="font-size: 0.65rem; margin-top: 4px;">Run the agent to see what it sees</div>
-            </div>
-            <img id="screenshotImg" src="" alt="Page screenshot" style="display: none;">
-        </div>
-
-        <!-- Logs -->
-        <div class="logs-container glass-card" id="logsContainer">
-            <div class="logs-header" id="logsHeader">
-                <div class="logs-header-left">
-                    <span class="logs-toggle">▼</span>
-                    <span class="logs-header-title">Activity Log</span>
-                    <span class="log-count" id="logCount">0</span>
+        <!-- Main Scrollable Content -->
+        <div class="main-content">
+            <!-- Stats -->
+            <div class="stats-grid glass-card">
+                <div class="stat-card">
+                    <div class="stat-value" id="sessionCount">0</div>
+                    <div class="stat-label">Sessions</div>
                 </div>
-                <div class="logs-actions">
-                    <button id="toggleScreenshot">📷</button>
-                    <button id="clearLogsBtn">Clear</button>
+                <div class="stat-card">
+                    <div class="stat-value" id="actionCount">0</div>
+                    <div class="stat-label">Actions</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="successRate">--%</div>
+                    <div class="stat-label">Success</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="avgTime">--</div>
+                    <div class="stat-label">Avg Time</div>
                 </div>
             </div>
-            <div class="logs" id="logs"></div>
+
+            <!-- Quick templates -->
+            <div class="templates-section glass-card">
+                <div class="section-header">
+                    <span class="section-title">Quick Start</span>
+                </div>
+                <div class="templates-grid">
+                    <button class="template-btn" data-template="google">
+                        <div class="template-icon">🔍</div>
+                        <div class="template-label">Google Search</div>
+                    </button>
+                    <button class="template-btn" data-template="amazon">
+                        <div class="template-icon">🛒</div>
+                        <div class="template-label">Shop Amazon</div>
+                    </button>
+                    <button class="template-btn" data-template="youtube">
+                        <div class="template-icon">▶️</div>
+                        <div class="template-label">YouTube Video</div>
+                    </button>
+                    <button class="template-btn" data-template="web">
+                        <div class="template-icon">🌐</div>
+                        <div class="template-label">Go to Website</div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Form -->
+            <div class="form-section glass-card">
+                <div class="form-group">
+                    <label for="goal">
+                        Goal / Instruction
+                        <span class="label-hint">What should I do?</span>
+                    </label>
+                    <textarea id="goal" placeholder="e.g., Go to Amazon and find top rated headphones..."></textarea>
+
+                    <!-- Goal History -->
+                    <div class="goal-history" id="goalHistory">
+                        <!-- Chips will be added via JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="controls">
+                <button class="btn-start" id="startBtn">
+                    <span>▶</span> Start Agent
+                </button>
+                <button class="btn-stop" id="stopBtn" disabled>
+                    <span>◼</span> Stop
+                </button>
+                <button class="btn-resume" id="resumeBtn">
+                    <span>↻</span> Resume
+                </button>
+            </div>
+
+            <!-- Human Help Banner -->
+            <div class="human-help-banner" id="humanHelpBanner">
+                <p id="humanHelpMessage">The agent needs your help!</p>
+            </div>
+
+            <!-- Status -->
+            <div class="status-bar">
+                <div class="status-indicator">
+                    <div class="status-dot" id="statusDot"></div>
+                    <span class="status-text" id="statusText">Ready to go</span>
+                </div>
+                <div class="status-right">
+                    <span class="status-time" id="elapsedTime">00:00</span>
+                </div>
+            </div>
+
+            <!-- Screenshot Preview -->
+            <div class="screenshot-preview" id="screenshotPreview">
+                <div class="screenshot-label">Current View</div>
+                <div class="screenshot-placeholder" id="screenshotPlaceholder">
+                    <div class="screenshot-placeholder-icon">📷</div>
+                    <div>No screenshot yet</div>
+                    <div style="font-size: 0.65rem; margin-top: 4px;">Run the agent to see what it sees</div>
+                </div>
+                <img id="screenshotImg" src="" alt="Page screenshot" style="display: none;">
+            </div>
+
+            <!-- Logs -->
+            <div class="logs-container glass-card" id="logsContainer">
+                <div class="logs-header" id="logsHeader">
+                    <div class="logs-header-left">
+                        <span class="logs-toggle">▼</span>
+                        <span class="logs-header-title">Activity Log</span>
+                        <span class="log-count" id="logCount">0</span>
+                    </div>
+                    <div class="logs-actions">
+                        <button id="toggleScreenshot">📷</button>
+                        <button id="clearLogsBtn" title="Clear Logs">🗑️</button>
+                    </div>
+                </div>
+                <div class="logs" id="logs">
+                    <!-- Logs will appear here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Modal -->
+        <div class="settings-modal" id="settingsModal">
+            <div class="settings-content">
+                <div class="settings-header">
+                    <span class="settings-title">Settings</span>
+                    <button class="close-settings" id="closeSettingsBtn">×</button>
+                </div>
+                <div class="form-group">
+                    <label for="apiKey">
+                        Gemini API Key
+                        <span class="label-hint">Required</span>
+                    </label>
+                    <input type="password" id="apiKey" placeholder="Paste your API key here">
+                </div>
+                <div style="margin-top: 15px; text-align: right;">
+                    <button id="saveSettingsBtn"
+                        style="width: auto; padding: 8px 16px; background: var(--accent-purple); color: white;">Save</button>
+                </div>
+            </div>
         </div>
 
         <!-- Footer -->
