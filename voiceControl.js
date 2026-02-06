@@ -16,6 +16,7 @@ class VoiceControl {
         this.onError = options.onError || (() => { });
         this.onStateChange = options.onStateChange || (() => { });
         this.onInterimResult = options.onInterimResult || (() => { });
+        this.lastPermissionRequest = 0;
 
         // Initialize
         this.init();
@@ -73,7 +74,9 @@ class VoiceControl {
             switch (event.error) {
                 case 'not-allowed':
                 case 'permission-denied':
-                    errorMessage = 'Microphone access denied. Please allow microphone permissions.';
+                    errorMessage = 'Microphone access denied. Please click the microphone icon in the address bar and allow access.';
+                    // Try to show the permission page if we haven't already
+                    this.requestPermission();
                     break;
                 case 'no-speech':
                     errorMessage = 'No speech detected. Please try again.';
@@ -100,7 +103,28 @@ class VoiceControl {
         };
     }
 
-    start() {
+    async requestPermission() {
+        try {
+            // This is a dummy request to trigger the microphone permission prompt
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            stream.getTracks().forEach(track => track.stop());
+            return true;
+        } catch (error) {
+            console.error('🎤 Permission request failed:', error);
+
+            // Fallback: Open a dedicated tab for permission request
+            // Throttled to once every 10 seconds to avoid spamming tabs
+            const now = Date.now();
+            if (now - this.lastPermissionRequest > 10000) {
+                console.log('🎤 Opening permissions page fallback...');
+                chrome.tabs.create({ url: 'permissions.html' });
+                this.lastPermissionRequest = now;
+            }
+            return false;
+        }
+    }
+
+    async start() {
         if (!this.isSupported) {
             this.onError('Voice control is not supported in this browser. Please use Chrome.');
             return false;
@@ -115,7 +139,23 @@ class VoiceControl {
             return true;
         } catch (error) {
             console.error('Failed to start voice recognition:', error);
-            this.onError('Failed to start voice recognition');
+
+            // If it failed because of permission, try requesting it explicitly
+            if (error.name === 'NotAllowedError' || error.message.includes('permission')) {
+                const granted = await this.requestPermission();
+                if (granted) {
+                    try {
+                        this.recognition.start();
+                        return true;
+                    } catch (retryError) {
+                        this.onError('Microphone access denied. Please click the microphone icon in the address bar and allow access.');
+                    }
+                } else {
+                    this.onError('Microphone access denied. Please allow microphone permissions in extension settings.');
+                }
+            } else {
+                this.onError('Failed to start voice recognition');
+            }
             return false;
         }
     }
@@ -132,11 +172,11 @@ class VoiceControl {
         }
     }
 
-    toggle() {
+    async toggle() {
         if (this.isListening) {
             this.stop();
         } else {
-            this.start();
+            await this.start();
         }
     }
 }
