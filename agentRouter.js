@@ -11,6 +11,24 @@
 function detectTaskType(goal) {
     const goalLower = goal.toLowerCase();
 
+    // Collection/list patterns - check this FIRST (high priority)
+    if (goalLower.includes('make a list') ||
+        goalLower.includes('list of') ||
+        goalLower.includes('collect') ||
+        goalLower.includes('gather') ||
+        goalLower.includes('compile') ||
+        goalLower.match(/find\s+(all|\d+|several|multiple)/)) {
+        return 'collection';
+    }
+
+    // Multi-tab patterns
+    if (goalLower.includes('compare') ||
+        goalLower.includes('multiple tabs') ||
+        goalLower.includes('open several') ||
+        goalLower.includes('side by side')) {
+        return 'multiTab';
+    }
+
     // Search patterns
     if (goalLower.includes('search for') ||
         goalLower.includes('find') ||

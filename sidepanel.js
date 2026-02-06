@@ -12,6 +12,8 @@ let currentTabId = null;
 let lastError = null;
 let consecutiveErrors = 0;
 let currentPlan = []; // Multi-step plan
+let collectedItems = []; // Data collection list
+let managedTabs = []; // Track all tabs we're working with
 
 // ==================== DOM ELEMENTS ====================
 const apiKeyInput = document.getElementById('apiKey');
@@ -30,11 +32,25 @@ const sessionCountEl = document.getElementById('sessionCount');
 const actionCountEl = document.getElementById('actionCount');
 const successRateEl = document.getElementById('successRate');
 const goalHistoryEl = document.getElementById('goalHistory');
+const progressBar = document.getElementById('progressBar');
+const progressFill = document.getElementById('progressFill');
+const logCountEl = document.getElementById('logCount');
+const avgTimeEl = document.getElementById('avgTime');
+const screenshotPreview = document.getElementById('screenshotPreview');
+const screenshotImg = document.getElementById('screenshotImg');
+const toggleScreenshotBtn = document.getElementById('toggleScreenshot');
+const exportBtn = document.getElementById('exportBtn');
+const templateBtns = document.querySelectorAll('.template-btn');
+const logsContainer = document.getElementById('logsContainer');
+const logsHeader = document.getElementById('logsHeader');
+const screenshotPlaceholder = document.getElementById('screenshotPlaceholder');
 
 // ==================== PERSISTENT STATS ====================
-let stats = { sessions: 0, actions: 0, successes: 0 };
+let stats = { sessions: 0, actions: 0, successes: 0, totalTime: 0 };
 let sessionStartTime = null;
 let timerInterval = null;
+let logEntryCount = 0;
+let lastScreenshot = null;
 
 // ==================== LOGGING ====================
 function log(message, type = 'info') {
@@ -45,6 +61,10 @@ function log(message, type = 'info') {
     logsDiv.appendChild(entry);
     logsDiv.scrollTop = logsDiv.scrollHeight;
     console.log(`[GeminiPilot][${type}] ${message}`);
+
+    // Update log count
+    logEntryCount++;
+    if (logCountEl) logCountEl.textContent = logEntryCount;
 }
 
 function escapeHtml(text) {
@@ -55,6 +75,8 @@ function escapeHtml(text) {
 
 function clearLogs() {
     logsDiv.innerHTML = '';
+    logEntryCount = 0;
+    if (logCountEl) logCountEl.textContent = '0';
 }
 
 // ==================== UI STATE ====================
@@ -604,6 +626,107 @@ async function executeAction(agentResponse) {
                 }
                 break;
 
+            // ==================== MULTI-TAB ACTIONS ====================
+            case 'switch_tab':
+                try {
+                    const tabIndex = parseInt(value) || 0;
+                    const allTabs = await chrome.tabs.query({ currentWindow: true });
+                    if (tabIndex >= 0 && tabIndex < allTabs.length) {
+                        const targetTab = allTabs[tabIndex];
+                        await chrome.tabs.update(targetTab.id, { active: true });
+                        currentTabId = targetTab.id;
+                        log(`🔄 Switched to tab ${tabIndex}: ${targetTab.title?.substring(0, 30)}...`, 'action');
+                        await sleep(500);
+                        result = { success: true, message: `Switched to tab ${tabIndex}` };
+                    } else {
+                        result = { success: false, error: `Tab index ${tabIndex} out of range (0-${allTabs.length - 1})` };
+                    }
+                } catch (e) {
+                    result = { success: false, error: e.message };
+                }
+                break;
+
+            case 'close_tab':
+                try {
+                    const allTabs = await chrome.tabs.query({ currentWindow: true });
+                    if (allTabs.length > 1) {
+                        await chrome.tabs.remove(currentTabId);
+                        const remainingTabs = await chrome.tabs.query({ currentWindow: true, active: true });
+                        currentTabId = remainingTabs[0]?.id;
+                        log(`🗑️ Closed tab, now on: ${remainingTabs[0]?.title?.substring(0, 30)}...`, 'action');
+                        result = { success: true, message: 'Tab closed' };
+                    } else {
+                        result = { success: false, error: 'Cannot close the last tab' };
+                    }
+                } catch (e) {
+                    result = { success: false, error: e.message };
+                }
+                break;
+
+            case 'list_tabs':
+                try {
+                    const allTabs = await chrome.tabs.query({ currentWindow: true });
+                    const tabList = allTabs.map((t, i) => `[${i}] ${t.title?.substring(0, 40)} ${t.id === currentTabId ? '(current)' : ''}`).join('\n');
+                    log(`📑 Open tabs:\n${tabList}`, 'info');
+                    result = { success: true, message: `Found ${allTabs.length} tabs`, tabList };
+                } catch (e) {
+                    result = { success: false, error: e.message };
+                }
+                break;
+
+            // ==================== DATA COLLECTION ACTIONS ====================
+            case 'collect_item':
+                try {
+                    let itemData;
+                    if (typeof value === 'string') {
+                        itemData = JSON.parse(value);
+                    } else {
+                        itemData = value;
+                    }
+                    itemData._timestamp = Date.now();
+                    itemData._index = collectedItems.length + 1;
+                    collectedItems.push(itemData);
+                    log(`📦 Collected item #${itemData._index}: ${itemData.name || JSON.stringify(itemData).substring(0, 50)}...`, 'action');
+                    result = { success: true, message: `Item collected (${collectedItems.length} total)` };
+                } catch (e) {
+                    result = { success: false, error: `Failed to parse item: ${e.message}` };
+                }
+                break;
+
+            case 'show_collection':
+                if (collectedItems.length === 0) {
+                    log('📋 Collection is empty', 'info');
+                    result = { success: true, message: 'No items collected yet' };
+                } else {
+                    log(`📋 COLLECTED ${collectedItems.length} ITEMS:`, 'info');
+                    collectedItems.forEach((item, i) => {
+                        const display = item.name ? `${item.name} - ${item.price || 'N/A'}` : JSON.stringify(item);
+                        log(`  ${i + 1}. ${display}`, 'info');
+                    });
+                    result = { success: true, message: `Showing ${collectedItems.length} items`, items: collectedItems };
+                }
+                break;
+
+            case 'paste_collection':
+                if (collectedItems.length === 0) {
+                    result = { success: false, error: 'No items to paste' };
+                } else {
+                    const text = collectedItems.map(item => {
+                        return Object.entries(item)
+                            .filter(([k]) => !k.startsWith('_'))
+                            .map(([k, v]) => `${k}: ${v}`)
+                            .join('\n');
+                    }).join('\n\n-------------------\n\n');
+
+                    log(`📝 Pasting ${collectedItems.length} items into page...`, 'action');
+                    // Use type action mechanism to paste
+                    result = await chrome.tabs.sendMessage(currentTabId, {
+                        type: 'EXECUTE_ACTION',
+                        action: { type: 'type', value: text, target_id: targetId || null } // Use target_id if provided, else active element
+                    });
+                }
+                break;
+
             default:
                 result = { success: false, error: `Unknown action: ${action}` };
         }
@@ -656,6 +779,7 @@ async function runAgentLoop() {
     isPaused = false;
     conversationHistory = [];
     actionHistory = [];
+    collectedItems = []; // Reset collection for new task
     lastError = null;
     consecutiveErrors = 0;
 
@@ -663,6 +787,7 @@ async function runAgentLoop() {
     stats.sessions++;
     saveStats();
     startTimer();
+    setProgressActive(true);
     updateUI();
 
     log(`🚀 Starting agent with goal: "${goal}"`, 'info');
@@ -722,6 +847,7 @@ async function runAgentLoop() {
 
             // Capture screenshot
             const screenshot = await captureScreenshot();
+            if (screenshot) updateScreenshotPreview(screenshot);
 
             // Build context
             const elementContext = formatElementContext(elements);
@@ -844,6 +970,7 @@ function stopAgent() {
     isPaused = false;
     hideHumanHelp();
     stopTimer();
+    setProgressActive(false);
     updateUI();
 
     if (currentTabId) {
@@ -968,6 +1095,11 @@ function stopTimer() {
         clearInterval(timerInterval);
         timerInterval = null;
     }
+    // Save session time to stats
+    if (sessionStartTime) {
+        stats.totalTime += Math.floor((Date.now() - sessionStartTime) / 1000);
+        saveStats();
+    }
 }
 
 function updateTimer() {
@@ -976,6 +1108,108 @@ function updateTimer() {
     const mins = Math.floor(elapsed / 60).toString().padStart(2, '0');
     const secs = (elapsed % 60).toString().padStart(2, '0');
     elapsedTimeEl.textContent = `${mins}:${secs}`;
+
+    // Update progress bar animation
+    if (progressFill && isRunning) {
+        const cycle = (Date.now() / 50) % 100;
+        progressFill.style.width = `${30 + Math.sin(cycle * 0.1) * 20}%`;
+    }
+}
+
+// ==================== PROGRESS BAR ====================
+function setProgressActive(active) {
+    if (!progressBar) return;
+    if (active) {
+        progressBar.classList.add('active');
+        progressFill.style.width = '30%';
+    } else {
+        progressBar.classList.remove('active');
+        progressFill.style.width = '0%';
+    }
+}
+
+// ==================== SCREENSHOT PREVIEW ====================
+function updateScreenshotPreview(dataUrl) {
+    lastScreenshot = dataUrl;
+    if (screenshotImg) {
+        screenshotImg.src = dataUrl;
+        screenshotImg.style.display = 'block';
+    }
+    if (screenshotPlaceholder) {
+        screenshotPlaceholder.style.display = 'none';
+    }
+}
+
+function toggleScreenshotPreview() {
+    if (!screenshotPreview) return;
+    screenshotPreview.classList.toggle('visible');
+    if (screenshotPreview.classList.contains('visible') && lastScreenshot) {
+        screenshotImg.src = lastScreenshot;
+        screenshotImg.style.display = 'block';
+        if (screenshotPlaceholder) screenshotPlaceholder.style.display = 'none';
+    }
+}
+
+// ==================== LOGS TOGGLE ====================
+function toggleLogs() {
+    if (!logsContainer) return;
+    logsContainer.classList.toggle('collapsed');
+}
+
+// ==================== EXPORT LOGS ====================
+function exportLogs() {
+    const logEntries = logsDiv.querySelectorAll('.log-entry');
+    let logText = `GeminiPilot 3 - Session Log\nExported: ${new Date().toISOString()}\n\n`;
+
+    logEntries.forEach(entry => {
+        const time = entry.querySelector('.log-time')?.textContent || '';
+        const content = entry.querySelector('.log-content')?.textContent || '';
+        const type = entry.className.replace('log-entry ', '').toUpperCase();
+        logText += `[${time}] [${type}] ${content}\n`;
+    });
+
+    const blob = new Blob([logText], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `geminipilot-log-${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    log('📥 Logs exported!', 'info');
+}
+
+// ==================== TEMPLATE HANDLERS ====================
+function setupTemplates() {
+    templateBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const template = btn.dataset.template;
+            if (template) {
+                goalInput.value = template;
+                goalInput.focus();
+                // Place cursor at end
+                goalInput.setSelectionRange(template.length, template.length);
+            }
+        });
+    });
+}
+
+// ==================== ENHANCED STATS ====================
+function updateStatsDisplay() {
+    if (sessionCountEl) sessionCountEl.textContent = stats.sessions;
+    if (actionCountEl) actionCountEl.textContent = stats.actions;
+    if (successRateEl) {
+        const rate = stats.actions > 0 ? Math.round((stats.successes / stats.actions) * 100) : 0;
+        successRateEl.textContent = `${rate}%`;
+    }
+    if (avgTimeEl && stats.sessions > 0) {
+        const avgSecs = Math.round(stats.totalTime / stats.sessions);
+        if (avgSecs < 60) {
+            avgTimeEl.textContent = `${avgSecs}s`;
+        } else {
+            avgTimeEl.textContent = `${Math.floor(avgSecs / 60)}m`;
+        }
+    }
 }
 
 // ==================== INITIALIZATION ====================
@@ -984,10 +1218,24 @@ async function init() {
     await loadGoalHistory();
     await loadStats();
     displayGoalChips();
+    setupTemplates();
+
+    // Setup event listeners for new features
+    if (toggleScreenshotBtn) {
+        toggleScreenshotBtn.addEventListener('click', toggleScreenshotPreview);
+    }
+    if (exportBtn) {
+        exportBtn.addEventListener('click', exportLogs);
+    }
+    if (logsHeader) {
+        logsHeader.addEventListener('click', toggleLogs);
+        logsHeader.style.cursor = 'pointer';
+    }
+
     updateUI();
 
     log('🚀 GeminiPilot 3 ready!', 'info');
-    log('⌨️ Ctrl+Enter=Start | Esc=Stop | Space=Resume', 'info');
+    log('⌨️ Ctrl+Enter=Start | Esc=Stop', 'info');
 }
 
 init();

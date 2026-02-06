@@ -61,6 +61,7 @@ Think through each step explicitly:
  */
 const ACTIONS_PROMPT = `## AVAILABLE ACTIONS
 
+### Browser Actions
 | Action | Use Case | Fields |
 |--------|----------|--------|
 | **click** | Buttons, links, checkboxes | target_id |
@@ -69,13 +70,31 @@ const ACTIONS_PROMPT = `## AVAILABLE ACTIONS
 | **press_enter** | Submit after separate typing | target_id |
 | **scroll** | See more content | value: "up"/"down" |
 | **navigate** | Go to known URL | value: URL |
-| **new_tab** | Open link in new tab | value: URL |
 | **wait** | Let page load/update | value: milliseconds |
 | **go_back** | Return to previous page | - |
 | **refresh** | Reload current page | - |
+
+### Multi-Tab Actions
+| Action | Use Case | Fields |
+|--------|----------|--------|
+| **new_tab** | Open URL in new tab | value: URL |
+| **switch_tab** | Switch to another tab | value: tab index (0-based) |
+| **close_tab** | Close current tab | - |
+| **list_tabs** | Get info about all tabs | - |
+
+### Data Collection Actions
+| Action | Use Case | Fields |
+|--------|----------|--------|
 | **extract** | Read text from element | target_id |
+| **collect_item** | Add item to collection list | value: JSON with item data |
+| **show_collection** | Display collected items | - |
+| **paste_collection** | Type all collected items into page | target_id (optional) |
+
+### Control Actions
+| Action | Use Case | Fields |
+|--------|----------|--------|
 | **human_help** | Need user intervention | message_to_user |
-| **done** | Task completed | - |`;
+| **done** | Task completed | value: optional summary |`;
 
 /**
  * Response format prompt
@@ -133,7 +152,31 @@ For shopping/e-commerce tasks:
 2. Use type_and_enter to search for products
 3. Use scroll to see more results if needed
 4. Look for price, rating, and availability information
-5. Use extract to get specific product details`
+5. Use extract to get specific product details`,
+
+    collection: `## DATA COLLECTION STRATEGY
+For tasks that ask to "make a list" or "collect" items:
+1. Navigate to the source (Amazon, Google, etc.)
+2. Identify the items the user wants
+3. For EACH item:
+   - OBSERVE what information is relevant to the user's goal.
+   - Use 'extract' on the relevant element(s).
+   - Use 'collect_item' with a JSON object containing WHATEVER fields make sense.
+   - Example 1: {"title": "...", "context": "...", "link": "..."}
+   - Example 2: {"question": "...", "answer": "..."}
+   - Do NOT force specific fields like "price" unless asked.
+4. If exporting to Google Docs:
+   - Use 'new_tab' to open "https://docs.new"
+   - Wait for load -> Click body -> 'paste_collection'
+5. Use show_collection periodically to verify`,
+
+    multiTab: `## MULTI-TAB STRATEGY
+For tasks requiring multiple tabs:
+1. Use new_tab to open URLs in new tabs
+2. Use list_tabs to see all open tabs with their indices
+3. Use switch_tab with the tab index to move between tabs
+4. Use close_tab to close the current tab when done
+5. Tab indices start at 0 (leftmost tab)`
 };
 
 // ==================== PROMPT BUILDERS ====================
