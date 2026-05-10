@@ -194,19 +194,19 @@ geminiextension/
 
 ## Installation & Setup
 
-## Requirements
+### Requirements
 - Google Chrome (latest stable recommended)
 - Gemini API key (Google Generative Language API)
 
-## Load extension locally
+### Load extension locally
 1. Open `chrome://extensions`
 2. Enable **Developer mode**
 3. Click **Load unpacked**
 4. Select:
-   - `/home/runner/work/geminiextension/geminiextension`
+   - The local `geminiextension` project folder (the folder containing `manifest.json`)
 5. Pin the extension if desired
 
-## Configure API key
+### Configure API key
 1. Open the side panel from extension icon
 2. Click **Settings** (⚙️)
 3. Paste your Gemini API key
@@ -216,7 +216,7 @@ geminiextension/
 
 ## Usage Guide
 
-## Basic usage
+### Basic usage
 1. Navigate to any regular webpage (not `chrome://`)
 2. Open GeminiPilot side panel
 3. Enter a goal in chat input
@@ -226,13 +226,13 @@ geminiextension/
    - Agent thought/action logs
    - Screenshot preview
 
-## Example goal types
+### Example goal types
 - “Search YouTube for React performance tips and open the best video”
 - “Go to amazon.com and find wireless mouse under $30”
 - “Collect 5 laptop options and prepare a list”
 - “Open docs.new and paste the collected data”
 
-## Runtime controls
+### Runtime controls
 - **Stop Agent** button or **Esc** key to halt run
 - If agent requests help, send a clarifying message in chat to resume
 - Open logs modal for full trace and export
