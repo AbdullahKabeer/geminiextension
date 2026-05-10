@@ -195,7 +195,7 @@ geminiextension/
 ## Installation & Setup
 
 ### Requirements
-- Google Chrome (latest stable recommended)
+- Google Chrome 88+ (Manifest V3 support; latest stable recommended)
 - Gemini API key (Google Generative Language API)
 
 ### Load extension locally
