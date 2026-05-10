@@ -412,8 +412,3 @@ Suggested manual verification after changes:
 - Add optional local model abstraction/provider switching
 
 ---
-
-If you want, I can also generate:
-- a contributor-focused `CONTRIBUTING.md`
-- an end-user quick-start one-pager
-- an architecture diagram (Mermaid) added to this README
